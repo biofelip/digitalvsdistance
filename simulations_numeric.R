@@ -1,8 +1,9 @@
 library(tidyverse)
-n <- 1e5
+library(data.table)
+n <- 1e4
 V <- 0.2
 g0 <- 0.5
-nsim <- 1000
+nsim <- 100
 w <- 50
 detected_df_list <- vector("list", nsim) # y, theta for detected animals only
 
@@ -19,10 +20,10 @@ for (s in seq_len(nsim)) {
   g_theta_raw <- pgamma(f_theta, shape = g_theta_shape, rate = 1)
   g_theta <- g_theta_raw - mean(g_theta_raw)
 
-  f_y <- runif(n, 0, w)
+  f_y <- c(0.01,runif(n-1, 0, w))
 
   g_y1_scale <- runif(1, w / 4, w / 2)
-  g_y1_raw <- exp(-f_y^2 / (2 * g_y1_scale^2))
+  g_y1_raw <- sqrt(2)/(g_y1_scale * sqrt(pi)) * exp(-f_y^2 / (2 * g_y1_scale^2))
   g_y1 <- g_y1_raw - mean(g_y1_raw)
 
   g_y1_theta <- g_y1 * g_theta
@@ -47,8 +48,12 @@ for (s in seq_len(nsim)) {
   a_th <- a_th * k
   a_int <- a_int * k
 
-  g <- g0 + a_y * g_y1 + a_th * g_theta + a_int * g_y1_theta
-  g <- pmin(pmax(g, 0), 1)
+  g_raw<- g0 + a_y * g_y1 + a_th * g_theta + a_int * g_y1_theta
+  g_raw<- pmin(pmax(g, 0), 1)
+  # rescale based on the assumption that g(0,theta)=1 for all theta
+  g <- g_raw/g_raw[match(0.01, f_y)]
+  # rescale based on the assumption that g(y,theta)=1 at the max point of the detection curve
+  # g <- g_raw/max(g_raw)
 
   v_y_real <- var(a_y * g_y1)
   v_th_real <- var(a_th * g_theta)
@@ -85,70 +90,78 @@ for (s in seq_len(nsim)) {
 detected_df <- do.call(rbind, detected_df_list)
 detected_df <- data.table(detected_df)
 
-
+### EXTREME EXAMPLES PLOT
 # one row per sim with its realized_r_y, to pick spread-out examples
 sim_summary <- detected_df %>%
-  distinct(sim, realized_r_y) %>%
+  distinct(sim, realized_r_y, realized_r_theta, realized_r_int) %>%
   arrange(realized_r_y)
 
-sample_sims <- sim_summary$sim[round(seq(1, nrow(sim_summary), length.out = 6))]
+sample_sims <- sim_summary$sim[round(seq(1, nrow(sim_summary), length.out = 10))]
 
 # filter to just those sims AND detected==1 -- small subset, safe to work with
 plot_data <- detected_df %>%
   filter(sim %in% sample_sims, detected == 1) %>%
-  select(sim, y, realized_r_y)
+  select(sim, y, realized_r_y, g, g_y1_scale, g_theta_shape)
+ggplot(plot_data,
+       aes(x = y, y=g, group = sim, color = realized_r_y)) +
+  geom_smooth(linewidth = 0.8, alpha = 0.5, se = FALSE) +
+  scale_color_viridis_c(name = "realized\nr_y") +
+  labs(x = "Detected distance (y)", y = "Density") +
+  theme_minimal()
 
-ggplot(detected_df %>% filter(detected == 1), aes(x = y, color = , color = factor(round(realized_r_y, 2)))) +
-  geom_density(linewidth = 0.8) +
-  labs(
-    x = "Detected distance (y)", y = "Density",
-    color = "realized\nr_y"
-  ) +
+### PLOT the curves with their expected variance prorportion colores
+
+by_var_y <- ggplot(detected_df %>% filter(detected == 1),
+       aes(x = y, y=g, group = sim, color = realized_r_y)) +
+  geom_smooth(linewidth = 1.5, alpha = 0.3, se = FALSE) +
+  scale_color_viridis_c(name = "realized\nr_y") +
+  labs(x = "Detected distance (y)", y = "Prob") +
+  theme_minimal()
+
+by_var_theta <- ggplot(detected_df %>% filter(detected == 1),
+       aes(x = y, y=g, group = sim, color = realized_r_theta)) +
+  geom_smooth(linewidth = 1.5, alpha = 0.5, se = FALSE) +
+  scale_color_viridis_c(name = "realized\nr_theta") +
+  labs(x = "Detected distance (y)", y = "Prob") +
+  theme_minimal()
+
+by_var_int <- ggplot(detected_df %>% filter(detected == 1),
+       aes(x = y, y=g, group = sim, color = realized_r_int)) +
+  geom_smooth(linewidth = 1.5, alpha = 0.5, se = FALSE) +
+  scale_color_viridis_c(name = "realized\nr_int") +
+  labs(x = "Detected distance (y)", y = "Prob") +
   theme_minimal()
 
 
+cowplot::plot_grid(by_var_y, by_var_theta, by_var_int, ncol = 1)
 
-# grab one scale value per chosen sim
-scale_lookup <- detected_df %>%
-  filter(sim %in% sample_sims) %>%
-  distinct(sim, g_y1_scale, realized_r_y)
+## PLOT a tern plot with the residuals from  a half normal with the correct parameter scaleparamete . 
 
-# build theoretical half-normal density curves, normalized to integrate to 1 over [0,w]
-theory_curves <- scale_lookup %>%
-  rowwise() %>%
-  reframe({
-    y_grid <- seq(0, w, length.out = 256)
-    raw <- exp(-y_grid^2 / (2 * g_y1_scale^2))
-    norm_const <- integrate(function(y) exp(-y^2 / (2 * g_y1_scale^2)), 0, w)$value
-    data.frame(
-      sim = sim, realized_r_y = realized_r_y,
-      y_grid = y_grid, dens = raw / norm_const
-    )
-  })
+detected_df <- detected_df %>%
+  mutate(
+    hn_true    = sqrt(2)/(g_y1_scale * sqrt(pi)) * exp(-f_y^2 / (2 * g_y1_scale^2)),
+    residual_hn = g - hn_true
+  )
 
-# empirical densities, same sims as before
-plot_data <- detected_df %>%
-  filter(sim %in% sample_sims, detected == 1) %>%
-  select(sim, y, realized_r_y)
+sim_summary <- detected_df %>%
+  filter(detected == 1) %>%
+  group_by(sim) %>%
+  summarise(
+    realized_r_y     = first(realized_r_y),
+    realized_r_theta = first(realized_r_theta),
+    realized_r_int   = first(realized_r_int),
+    mean_residual_hn  = mean(residual_hn),
+    rmse_hn           = sqrt(mean(residual_hn^2)),
+    .groups = "drop"
+  )
 
-ggplot() +
-  geom_density(
-    data = plot_data, aes(
-      x = y, group = sim,
-      color = factor(round(realized_r_y, 2))
-    ),
-    linewidth = 0.8
-  ) +
-  geom_line(
-    data = theory_curves, aes(
-      x = y_grid, y = dens, group = sim,
-      color = factor(round(realized_r_y, 2))
-    ),
-    linetype = "dashed", linewidth = 0.6
-  ) +
-  labs(
-    x = "Detected distance (y)", y = "Density",
-    color = "realized\nr_y",
-    title = "Solid = observed detected distances, Dashed = theoretical half-normal"
-  ) +
-  theme_minimal()
+library(ggtern)
+
+ggtern(detected_df, aes(x = realized_r_y, y = realized_r_theta, z = realized_r_int,
+                         color = residual_hn)) +
+  geom_point(size = 0.5) +
+  scale_color_viridis_c(name = "RMSE vs\ntrue HN") +
+  theme_bw()
+
+# export to a csv file
+write.csv(detected_df, file = "results_sim_df.csv", row.names = FALSE)
