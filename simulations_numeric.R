@@ -1,3 +1,4 @@
+library(tidyverse)
 n <- 1e5
 V <- 0.2
 g0 <- 0.5
@@ -80,4 +81,25 @@ for (s in seq_len(nsim)) {
 
 
 detected_df <- do.call(rbind, detected_df_list)
-dim(detected_df)
+
+library(tidyverse)
+
+# one row per sim with its realized_r_y, to pick spread-out examples
+sim_summary <- detected_df %>%
+  distinct(sim, realized_r_y) %>%
+  arrange(realized_r_y)
+
+sample_sims <- sim_summary$sim[round(seq(1, nrow(sim_summary), length.out = 6))]
+
+# filter to just those sims AND detected==1 -- small subset, safe to work with
+plot_data <- detected_df %>%
+  filter(sim %in% sample_sims, detected == 1) %>%
+  select(sim, y, realized_r_y)
+
+ggplot(detected_df %>% filter(detected == 1), aes(x = y, color = , color = factor(round(realized_r_y, 2)))) +
+  geom_density(linewidth = 0.8) +
+  labs(
+    x = "Detected distance (y)", y = "Density",
+    color = "realized\nr_y"
+  ) +
+  theme_minimal()
