@@ -27,11 +27,11 @@ theta_length <- 5
 
 ### 1. Define the distribution of $f(y)$ and $f(\Theta)$
 
-$f(y)$ and $f(\Theta)$ are  the distribution of the horizontal distacnes to the transects  and the joint distribution of the covariates $\theta$ before sampling.  We will assume both to be independent of each other so that we can write the joint distribution as $f(y,\Theta) = f(y)f(\Theta)$. For the case of $f(y)$ we will assume a uniform distribution between 0 and $w$ this is we assume that the placement of the transects does not depend on the distribution of the animals. For the case of $f(\Theta)$ for now we will assume$\Theta$ has 5 components, we will assume a multivariate normal distribution with mean vector $\mu$ and covariance matrix $\Sigma$ assuming no correlation between the variables of $\Theta$.
+$f(y)$ and $f(\Theta)$ are  the distribution of the horizontal distacnes to the transects  and the joint distribution of the covariates $\theta$ before sampling.  We will assume both to be independent of each other so that we can write the joint distribution as $f(y,\Theta) = f(y)f(\Theta)$. For the case of $f(y)$ we will assume a uniform distribution between 0 and $w$ this is we assume that the placement of the transects does not depend on the distribution of the animals. For the case of $f(\Theta)$ for now we will assume$\Theta$ has 1 component to not assume a specific shape i will make it a gamma with random shape and scale parameters.
 
 ```{r }
 f_y <- runif(1000, 0, w)
-f_theta <- mvrnorm(n = 1000, mu = rep(0, theta_length), Sigma = diag(theta_length))
+f_theta <- rgamma(1000, shape = runif(1, 1, 5), scale = runif(1, 1, 5))
 ```
 
 ## Defining the detection function
@@ -45,7 +45,15 @@ Where $g_0$ is the average detection probability across all $y$ and all $\Theta$
 $$Var(g(y, \Theta)) = Var(g_y(y)) + Var(g_\theta(\theta)) + Var(g_{y,\theta}(y, \theta))$$
 
 
+in our case the we will assume
+- $P_c = g_0 = 0.5$
+- $g_y1(y)$ is a half-normal detection function with varying scale parameter.
+- $g_y2$ is a uniform detection function. 
+- $g_\theta(\theta)$ is another random gamama with very varying shape.
+- $g_{y,\theta}(y, \theta)$ is the produc to keep the centering. 
+```{r}
 
+```
 You can also embed plots, for example:
 
 ```{r pressure, echo=FALSE}
