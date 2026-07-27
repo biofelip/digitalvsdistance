@@ -71,7 +71,9 @@ for (s in seq_len(nsim)) {
     V_realized = v_total,
     g_min = min(g),
     g_max = max(g),
-    detected = detected
+    detected = detected,
+    g_y1_scale = g_y1_scale,
+    g_theta_shape = g_theta_shape
   )
   if (nrow(detected_df) > 0) {
     detected_df <- cbind(object = 1:nrow(detected_df), detected_df)
@@ -81,8 +83,8 @@ for (s in seq_len(nsim)) {
 
 
 detected_df <- do.call(rbind, detected_df_list)
+detected_df <- data.table(detected_df)
 
-library(tidyverse)
 
 # one row per sim with its realized_r_y, to pick spread-out examples
 sim_summary <- detected_df %>%
@@ -101,5 +103,52 @@ ggplot(detected_df %>% filter(detected == 1), aes(x = y, color = , color = facto
   labs(
     x = "Detected distance (y)", y = "Density",
     color = "realized\nr_y"
+  ) +
+  theme_minimal()
+
+
+
+# grab one scale value per chosen sim
+scale_lookup <- detected_df %>%
+  filter(sim %in% sample_sims) %>%
+  distinct(sim, g_y1_scale, realized_r_y)
+
+# build theoretical half-normal density curves, normalized to integrate to 1 over [0,w]
+theory_curves <- scale_lookup %>%
+  rowwise() %>%
+  reframe({
+    y_grid <- seq(0, w, length.out = 256)
+    raw <- exp(-y_grid^2 / (2 * g_y1_scale^2))
+    norm_const <- integrate(function(y) exp(-y^2 / (2 * g_y1_scale^2)), 0, w)$value
+    data.frame(
+      sim = sim, realized_r_y = realized_r_y,
+      y_grid = y_grid, dens = raw / norm_const
+    )
+  })
+
+# empirical densities, same sims as before
+plot_data <- detected_df %>%
+  filter(sim %in% sample_sims, detected == 1) %>%
+  select(sim, y, realized_r_y)
+
+ggplot() +
+  geom_density(
+    data = plot_data, aes(
+      x = y, group = sim,
+      color = factor(round(realized_r_y, 2))
+    ),
+    linewidth = 0.8
+  ) +
+  geom_line(
+    data = theory_curves, aes(
+      x = y_grid, y = dens, group = sim,
+      color = factor(round(realized_r_y, 2))
+    ),
+    linetype = "dashed", linewidth = 0.6
+  ) +
+  labs(
+    x = "Detected distance (y)", y = "Density",
+    color = "realized\nr_y",
+    title = "Solid = observed detected distances, Dashed = theoretical half-normal"
   ) +
   theme_minimal()
