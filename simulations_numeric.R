@@ -154,14 +154,41 @@ sim_summary <- detected_df %>%
     rmse_hn           = sqrt(mean(residual_hn^2)),
     .groups = "drop"
   )
-
+sim_summary2 <- left_join(sim_summary, results_pc, by = "sim")
 library(ggtern)
 
-ggtern(detected_df, aes(x = realized_r_y, y = realized_r_theta, z = realized_r_int,
-                         color = residual_hn)) +
-  geom_point(size = 0.5) +
+ggtern(sim_summary2, aes(x = realized_r_y, y = realized_r_theta, z = realized_r_int,
+                         color = (P_c -0.5)**2)) +
+  geom_point(size = 5) +
   scale_color_viridis_c(name = "RMSE vs\ntrue HN") +
   theme_bw()
+
+
+# plot  SE against realized_r_y
+sim_summary2 %>% pivot_longer(cols = c(P_c, P_c_cov, P_c_unif), names_to = "key", values_to = "P_c" ) %>%
+
+ggplot( aes(x = realized_r_y, y = P_c, color = realized_r_theta)) +
+  geom_point() +
+  geom_smooth() +
+  geom_hline(yintercept = .5, color = "red")+
+  facet_wrap(~key)+
+  scale_color_viridis_c(name = "realized\nr_theta") 
+
+sim_summary2 %>% select(-P_c_unif) %>%pivot_longer(cols = c(P_c, P_c_cov), names_to = "key", values_to = "P_c" ) %>%
+ggtern( aes(x = realized_r_y, y = realized_r_theta, z = realized_r_int, value = abs(P_c-0.5))) +
+  stat_interpolate_tern(geom = "polygon", aes(fill = after_stat(level)),
+                         formula = value ~ x + y, method = lm, n = 100,
+                         breaks = seq(0, 1, by = 0.05),   # fewer, wider bands
+                         color = "black", linewidth = 0.2) +
+  # scale_fill_viridis_c(name = "Absolute error in P_c" ) +
+  scale_fill_distiller(palette = "Spectral", direction = -1, name = "P_c",
+                      limits = c(0, 0.5))+
+  theme_bw()+
+  facet_wrap(~key)
+
+ggtern(sim_summary2, aes(x = realized_r_y, y = realized_r_theta, z = realized_r_int)) +
+  geom_point(aes(color = abs(P_c_unif-0.5)), size = 10, color = "Red") +
+  theme_bw()+
 
 # export to a csv file
 write.csv(detected_df, file = "results_sim_df.csv", row.names = FALSE)

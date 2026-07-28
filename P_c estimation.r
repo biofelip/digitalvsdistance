@@ -91,3 +91,5 @@ for (s_pick in 1:nsim) {
 }
 #save results
 saveRDS(results_pc, file = "results_pc.rds")
+
+colMeans(results_pc, na.rm = TRUE)
