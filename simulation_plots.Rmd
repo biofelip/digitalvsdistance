@@ -1,0 +1,104 @@
+---
+title: "Plotting of Simulation Results"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Part 1: Checking the original distributions and how they varied
+
+## 1.1 Distribution of parameters
+
+Plot the distribution of scales for g(y). We see that they are nice and spread. 
+<!-- TODO: Color the points by the general shapes of the distributions -->
+
+```{r scales-g-y}
+scales_g_y <- unique(detected_df$g_y1_scale)
+plot(scales_g_y, type = "p", ylab = "scale", xlab = "sim", char = ".")
+```
+
+Plot the distributions of scales and shapes for g(theta). Same we want them nice and spread
+
+```{r shapes-g-theta}
+shapes_g_theta <- unique(detected_df$g_theta_shape)
+plot(shapes_g_theta, type = "p", ylab = "scale", xlab = "sim", char = ".")
+```
+
+Plot the distributions of copula parameter rho for g(y, theta).
+
+```{r copula-params}
+copula_g_y_theta <- unique(detected_df$copula_rho)
+plot(copula_g_y_theta, type = "p", ylab = "rho", xlab = "sim", char = ".")
+```
+
+### 2D bin of the three parameters
+Visually it looks like we have enough combinations  of shapes, this part was just to confirm that the shapes used and assumed for the funcitons are actually very flexible
+
+```{r 2d-bin}
+library(ggplot2)
+library(dplyr)
+library(magrittr)
+
+data.frame(
+  scales_g_y = scales_g_y,
+  shapes_g_theta = shapes_g_theta,
+  copula_g_y_theta = copula_g_y_theta
+) %>%
+  ggplot(aes(x = scales_g_y, y = shapes_g_theta, color = copula_g_y_theta)) +
+  geom_point()
+```
+
+## 1.2 Visualization of distributions
+
+We can futher confirm this by plotting a few of the example distributions for each component both the theorethical (using the parameters and the points), and empiricall using the observed marginal distribution
+g(y) is a half normal — let's plot one for the sake of it.
+
+The theorethical distribution based on the  scale parameter is showed in the 
+```{r half-normal-g-y}
+library(dplyr)
+
+sims_to_sample <- sample(unique(detected_df$sim), 10, replace = FALSE)
+# select the 
+sims_to_sample = detected_df|> filter(realized_r_y > 0.7) |> pull(sim) |> sample(10)
+length(sims_to_sample)
+detected_df |> 
+  filter(sim %in% sims_to_sample) |> 
+  group_by(sim) |>
+  mutate(pdf = dnorm(y, 0, unique(g_y1_scale))) |>
+  mutate(pdf = (pdf[order(y)]-min(pdf))/(max(pdf)-min(pdf)), y_graph = y[order(y)], g_graph=g[order(y)]) |>
+  ungroup() |>
+  ggplot(aes(x = y_graph, y = pdf, color=realized_r_y)) +
+  geom_line(alpha = 0.5) +
+  geom_smooth(
+    data = detected_df |> filter(sim %in% sims_to_sample) |> group_by(sim) |> 
+                mutate( y_graph = y[order(y)], g_graph=g[order(y)]) |>
+                ungroup(),
+    mapping = aes(x = y_graph, y = g_graph, color=realized_r_y)
+  )+
+  facet_wrap(~sim)# plot(NULL, xlim = c(0, 500), ylim = c(0, 0.07),
+#      xlab = "y", ylab = "pdf", main = "g(y) half normal")
+
+# for (i in sample(unique(detected_df$sim), 50)) {
+#   pdf <- dnorm(detected_df$y[detected_df$sim == i], 0,
+#                unique(detected_df$g_y1_scale[detected_df$sim == i]))
+#   y_ordered <- detected_df$y[detected_df$sim == i][order(detected_df$y[detected_df$sim == i])]
+#   pdf_ordered <- pdf[order(detected_df$y[detected_df$sim == i])]
+
+#   lines(y_ordered, pdf_ordered, col = "#0062ffe2", cex = 1)
+# }
+```
+
+## 1.2 Checking the proportion of scenarios
+
+The scenarios are:
+
+1. y dominates
+2. theta dominates
+3. interaction dominates
+4. no dominance (all variances are around the same)
+
+```{r scenario-proportions}
+# TODO: add scenario classification / proportion code here
+```
