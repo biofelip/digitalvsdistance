@@ -6,7 +6,10 @@
 # diagnostics for a stratified subsample of hard (low r_y) sims separately.
 
 library(rstan)
+library(glue)
+library(data.table)
 rstan_options(auto_write = TRUE)
+
 
 # ---- compile both models ONCE, reused across every sim ----
 hn_model     <- stan_model("hn_optimize.stan")
@@ -87,6 +90,7 @@ fit_all_approaches <- function(fit_data, w, n_strata = 4, real_Pc = NULL) {
     P_c_plain       = r1$P_c,        N_hat_plain     = r1$N_hat,
     P_c_cov         = r2$P_c_cov,    N_hat_cov       = r2$N_hat_cov,
     P_c_strat       = r3$P_c_strat,  N_hat_strat     = r3$N_hat_strat,
+    P_c_uniform     = P_c_uniform,   N_hat_uniform   = N_hat_uniform,
     converged_plain = r1$converged,  converged_cov   = r2$converged,
     n_strata_failed = r3$n_strata_failed
   )
@@ -107,6 +111,17 @@ for (spick in 1:nsim) {
   result_row <- fit_all_approaches(fit_data, w = w_this_sim, n_strata = 4, real_Pc = real_Pc)
   results_pc <- rbind(results_pc, cbind(sim = spick, result_row))
 }
+
+#plot the difference between the observed and the real Pc  agains the proportion of 
+#r_Y that they explain 
+#fist join with the sim_summary
+results_pc=results_pc[sim_summary, on = "sim"]
+
+results_pc |> pivot_longer(c("P_c_plain", "P_c_cov", "P_c_strat"), names_to = "approach", values_to = "Pc") |>
+  ggplot(aes(x = realized_r_y, y = abs(Pc - P_c_real), color = approach)) +
+  geom_smooth()
+
+
 fit_data <- detected_df[sim == spick & detected == 1, .(distance = y, theta = theta)]
 w_this_sim <- sim_summary[sim == spick]$w
 result_row <- fit_all_approaches(fit_data, w = w_this_sim, n_strata = 4, real_Pc = real_Pc)
