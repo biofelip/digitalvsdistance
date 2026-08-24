@@ -59,7 +59,7 @@ The theorethical distribution based on the  scale parameter is showed in the
 ```{r half-normal-g-y}
 library(dplyr)
 
-sims_with_ry=detected_df|> summarise(sim=unique(sim), realized_r_y=unique(realized_r_y))
+sims_with_ry=detected_df|> summarise(sim=unique(sim), realized_r_y=unique(realized_r_y), realized_r_theta=unique(realized_r_theta), realized_r_int=unique(realized_r_int))
 sims_to_sample_lvar_y = sims_with_ry|> filter(realized_r_y < 0.2) |> pull(sim) |> sample(10, replace=FALSE)
 sims_to_sample_mvar_y= sims_with_ry|> filter(realized_r_y >= 0.2 & realized_r_y < 0.6) |> pull(sim) |> sample(10, replace=FALSE)
 sims_to_sample_hvar_y= sims_with_ry|> filter(realized_r_y >= 0.6 & realized_r_y < 0.8) |> pull(sim) |> sample(10, replace=FALSE)
@@ -103,5 +103,16 @@ The scenarios are:
 4. no dominance (all variances are around the same)
 
 ```{r scenario-proportions}
-# TODO: add scenario classification / proportion code here
+sims_with_ry = sims_with_ry |> 
+mutate(
+dom_scenario=case_when(
+  realized_r_y > 0.5 & realized_r_y < 0.95 ~ "dominance_y",
+  realized_r_theta >0.5 ~"dominance_theta",
+  realized_r_int > 0.5 ~"dominance_interaction", 
+  realized_r_y > 0.95 ~"high_dominance_y",
+  TRUE ~ "no_dominance"))
+
+table(sims_with_ry$dom_scenario)
+# plot as a barplot
+
 ```
