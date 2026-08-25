@@ -2,13 +2,20 @@
 # g_y
 library(tidyverse)
 library(data.table)
+library(glue)
 source("utils.R")
 nsim <- 10000
 n <- 1e4
 set.seed(0.101992)
-high_r_y <- TRUE
+high_r_y <- FALSE
 sim_summary_list <- vector("list", nsim)
 detected_df_list <- vector("list", nsim)
+type="low_r_y"
+number_file="2"
+if(high_r_y){
+  type="high_r_y"
+  number_file="2_2"
+}
 gc()
 
 for (s in 1:nsim) {
@@ -26,15 +33,15 @@ for (s in 1:nsim) {
     names(r) <- c("y", "theta", "int")
   }
 
-    f_theta_alfa <- runif(1, 1, 10)
-    f_theta_beta<- runif(1, 1, 10)
+    f_theta_alfa <- runif(1, 1, 4)
+    f_theta_beta<- runif(1, 1, 4)
     f_theta <- rbeta(n, shape1 = f_theta_alfa, shape2 = f_theta_beta)
 
     #Pit of f_theta
     u_theta = pbeta(f_theta, shape1 = f_theta_alfa, shape2 = f_theta_beta)
 
-    g_theta_alfa <- runif(1, 1, 10)
-    g_theta_beta<- runif(1, 1, 10)
+    g_theta_alfa <- runif(1, 1, 4)
+    g_theta_beta<- runif(1, 1, 4)
     g_theta_raw <- pbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
     g_theta <- g_theta_raw - mean(g_theta_raw)
 
@@ -42,8 +49,8 @@ for (s in 1:nsim) {
     f_y <- c(0.01, runif(n - 1, 0, w))
     u_y = punif(f_y, 0, w)
 
-    g_y1_alfa  = runif(1, 1, 10)
-    g_y1_beta <- runif(1, 1, 10)
+    g_y1_alfa  = runif(1, 1, 4)
+    g_y1_beta <- runif(1, 1, 4)
     g_y1_raw <- pbeta(u_y, shape1 = g_y1_alfa, shape2 = g_y1_beta)
     g_y1 <- g_y1_raw - mean(g_y1_raw)
 
@@ -164,12 +171,7 @@ length(detected_df_list)
 length(sim_summary_list)
 
 # save the list of dataframes
-saveRDS(detected_df_list, file = "L:/Documents/digitalvsdistance_results/2_2_detected_df_list_high_variance_free_shape_g_y.rds")
-saveRDS(sim_summary_list, file = "L:/Documents/digitalvsdistance_results/2_2_sim_summary_list_high_variance_free_shape_g_y.rds")
-# detected_df_list= readRDS("detected_df_list.rds")
-# this is soooo much faster than rbind
-# detected_df <- data.table::rbindlist(detected_df_list)
-# dim(detected_df)
+# saveRDS(detected_df_list, file = "L:/Documents/digitalvsdistance_results/2_2_detected_df_list_high_variance_free_shape_g_y.rds")
 
 # one random example
 index= sample(1:nsim, 1)
@@ -178,5 +180,12 @@ example_summary= sim_summary_list[[index]]
 # plot the 3 distributions and the points on top
 plot_sim_diagnostics(example_df, example_summary,y_shape = "beta", sim_id = index)
 # # save the dataframe with arrow because is too heavy right now
-# arrow::write_parquet(detected_df, "detected_df.parquet")
-# saveRDS(detected_df, file = "detected_df.rds")
+# # this is soooo much faster than rbind
+detected_df_FULL <- data.table::rbindlist(detected_df_list)
+dim(detected_df_FULL)
+
+
+# # save the dataframe with arrow because is too heavy right now
+saveRDS(sim_summary_list, file = glue("L:/Documents/digitalvsdistance_results/{number_file}_sim_summary_list_{type}_beta_g_y_smooth_scale.parquet"))
+
+arrow::write_parquet(detected_df_FULL, glue("L:/Documents/digitalvsdistance_results/{number_file}_detected_df_list_{type}_beta_g_y_smooth_scale.parquet"))
