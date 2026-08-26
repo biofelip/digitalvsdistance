@@ -88,7 +88,7 @@ library(mgcv)
 
 fit_true_shape <- function(full_sim_df, w, n_detected) {
   gam_fit <- tryCatch(
-    gam(g ~ s(y), data = full_sim_df),
+    mgcv::bam(g ~ s(y), data = full_sim_df),
     error = function(e) NULL
   )
   if (is.null(gam_fit)) {
@@ -111,7 +111,7 @@ fit_true_shape <- function(full_sim_df, w, n_detected) {
 # Generalizes "g(0)=1" to "wherever detection peaked, call that 1" -- does
 # NOT assume the peak is at y=0, unlike approaches 1-4. Use when the shape
 # is known/suspected not to be half-normal-like.
-fit_approach5 <- function(y, w, n_grid = 200) {
+fit_approach5 <- function(y, w, n_grid = 100) {
   fit <- tryCatch(
     optimizing(hn_flex_model, data = list(N = length(y), y = y, w = w, n_grid = n_grid)),
     error = function(e) NULL
