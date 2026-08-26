@@ -17,16 +17,16 @@ for (s in 1:nsim) {
     r <- c(0, r[1], r[2])
     names(r) <- c("y", "theta", "int")
 
-    f_theta_alfa <- runif(1, 1, 10)
-    f_theta_beta<- runif(1, 1, 10)
+    f_theta_alfa <- runif(1, 1, 4)
+    f_theta_beta<- runif(1, 1, 4)
     f_theta <- rbeta(n, shape1 = f_theta_alfa, shape2 = f_theta_beta)
 
     #Pit of f_theta
     u_theta = pbeta(f_theta, shape1 = f_theta_alfa, shape2 = f_theta_beta)
 
-    g_theta_alfa <- runif(1, 1, 10)
-    g_theta_beta<- runif(1, 1, 10)
-    g_theta_raw <- pbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
+    g_theta_alfa <- runif(1, 1, 4)
+    g_theta_beta<- runif(1, 1, 4)
+    g_theta_raw <- dbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
     g_theta <- g_theta_raw - mean(g_theta_raw)
 
     # fy is already a uniform
@@ -153,12 +153,12 @@ length(detected_df_list)
 length(sim_summary_list)
 
 # save the list of dataframes
-saveRDS(detected_df_list, file = "L:/Documents/digitalvsdistance_results/3_detected_df_list_uniform_g_y.rds")
-saveRDS(sim_summary_list, file = "L:/Documents/digitalvsdistance_results/3_sim_summary_list_uniform_g_y.rds")
+# saveRDS(detected_df_list, file = "L:/Documents/digitalvsdistance_results/3_detected_df_list_uniform_g_y.rds")
+saveRDS(sim_summary_list, file = "L:/Documents/digitalvsdistance_results/3_sim_summary_list_smooth_params_uniform_g_y.rds")
 # detected_df_list= readRDS("detected_df_list.rds")
 # this is soooo much faster than rbind
-# detected_df <- data.table::rbindlist(detected_df_list)
-# dim(detected_df)
+detected_df_FULL <- data.table::rbindlist(detected_df_list)
+dim(detected_df_FULL)
 
 # one random example
 index= sample(1:nsim, 1)
@@ -167,5 +167,5 @@ example_summary= sim_summary_list[[index]]
 # plot the 3 distributions and the points on top
 plot_sim_diagnostics(example_df, example_summary, y_shape = "uniform", sim_id = index)
 # # save the dataframe with arrow because is too heavy right now
-# arrow::write_parquet(detected_df, "detected_df.parquet")
+arrow::write_parquet(detected_df_FULL, "L:/Documents/digitalvsdistance_results/3_detected_df_list_smooth_params_uniform_g_y.parquet")
 # saveRDS(detected_df, file = "detected_df.rds")

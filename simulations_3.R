@@ -3,12 +3,19 @@
 library(tidyverse)
 library(data.table)
 source("utils.R")
+library(glue)
 nsim <- 10000
 n <- 1e4
 set.seed(0.101992)
 sim_summary_list <- vector("list", nsim)
 detected_df_list <- vector("list", nsim)
-high_r_y <- FALSE
+high_r_y <- TRUE
+type="low_r_y"
+number_file="1"
+if(high_r_y){
+  type="high_r_y"
+  number_file="1_1"
+}
 gc()
 for (s in 1:nsim) {
   V <- runif(1, 0, 1)
@@ -26,23 +33,23 @@ for (s in 1:nsim) {
   }
    
 
-    f_theta_alfa <- runif(1, 1, 10)
-    f_theta_beta<- runif(1, 1, 10)
+    f_theta_alfa <- runif(1, 1, 4)
+    f_theta_beta<- runif(1, 1, 4)
     f_theta <- rbeta(n, shape1 = f_theta_alfa, shape2 = f_theta_beta)
 
     #Pit of f_theta
     u_theta = pbeta(f_theta, shape1 = f_theta_alfa, shape2 = f_theta_beta)
 
-    g_theta_alfa <- runif(1, 1, 10)
-    g_theta_beta<- runif(1, 1, 10)
-    g_theta_raw <- pbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
+    g_theta_alfa <- runif(1, 1, 4)
+    g_theta_beta<- runif(1, 1, 4)
+    g_theta_raw <- dbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
     g_theta <- g_theta_raw - mean(g_theta_raw)
 
     # fy is already a uniform
     f_y <- c(0.01, runif(n - 1, 0, w))
     u_y = punif(f_y, 0, w)
 
-    g_y1_scale <- runif(1, 0.1, 0.4)
+    g_y1_scale <- runif(1, 0.4, 0.6)
     g_y1_raw <- sqrt(2) / (g_y1_scale * sqrt(pi)) * exp(-u_y^2 / (2 * g_y1_scale^2))
     g_y1 <- g_y1_raw - mean(g_y1_raw)
 
@@ -159,8 +166,7 @@ for (s in 1:nsim) {
   }
 
 # save the list of dataframes
-saveRDS(detected_df_list, file = "L:/Documents/digitalvsdistance_results/detected_df_list_hn_g_y.rds")
-saveRDS(sim_summary_list, file = "L:/Documents/digitalvsdistance_results/sim_summary_list_hn_g_y.rds")
+# saveRDS(detected_df_list, file = "L:/Documents/digitalvsdistance_results/detected_df_list_hn_g_y.rds")
 
 length(detected_df_list)
 length(sim_summary_list)
@@ -178,5 +184,6 @@ dim(detected_df_FULL)
 
 
 # # save the dataframe with arrow because is too heavy right now
-arrow::write_parquet(detected_df_FULL, "L:/Documents/digitalvsdistance_results/detected_df_list_hn_g_y.parquet")
+saveRDS(sim_summary_list, file = glue("L:/Documents/digitalvsdistance_results/{number_file}_sim_summary_list_{type}_hn_g_y_smooth_scale.parquet"))
 
+arrow::write_parquet(detected_df_FULL, glue("L:/Documents/digitalvsdistance_results/{number_file}_detected_df_list_{type}_hn_g_y_smooth_scale.parquet"))
