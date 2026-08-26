@@ -42,7 +42,7 @@ for (s in 1:nsim) {
 
     g_theta_alfa <- runif(1, 1, 4)
     g_theta_beta<- runif(1, 1, 4)
-    g_theta_raw <- pbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
+    g_theta_raw <- dbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
     g_theta <- g_theta_raw - mean(g_theta_raw)
 
     # fy is already a uniform
@@ -51,7 +51,7 @@ for (s in 1:nsim) {
 
     g_y1_alfa  = runif(1, 1, 4)
     g_y1_beta <- runif(1, 1, 4)
-    g_y1_raw <- pbeta(u_y, shape1 = g_y1_alfa, shape2 = g_y1_beta)
+    g_y1_raw <- dbeta(u_y, shape1 = g_y1_alfa, shape2 = g_y1_beta)
     g_y1 <- g_y1_raw - mean(g_y1_raw)
 
     # the interaction will be defined with a gaussian copula between the two variables with a random

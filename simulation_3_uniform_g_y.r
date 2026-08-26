@@ -26,7 +26,7 @@ for (s in 1:nsim) {
 
     g_theta_alfa <- runif(1, 1, 4)
     g_theta_beta<- runif(1, 1, 4)
-    g_theta_raw <- pbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
+    g_theta_raw <- dbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
     g_theta <- g_theta_raw - mean(g_theta_raw)
 
     # fy is already a uniform
