@@ -6,28 +6,44 @@ n <- 1e4
 detected_df_list <- vector("list", nsim) # y, theta for detected animals only
 set.seed(0.101992)
 for (s in 1:100) {
-  V <- runif(1, 0, 1)
-  g0 <- runif(1, 0, 1)
-  w <- runif(1, 1, 50) * 10
+  V <- runif(1, 0, 1) # Variance of the detection function
+  g0 <- runif(1, 0, 1) # Mean detection across al y and theta
+  w <- runif(1, 1, 50) * 10 # transect width
 
-  # for (s in seq_len(nsim)) {
+  # Proportions of variance of each component of the detection function
   r <- rgamma(3, shape = 1)
   r <- r / sum(r)
   names(r) <- c("y", "theta", "int")
 
+  # Paramaeters of the distribution of the covariate theta (pi(theta))
+  # a random shape and scale parameter
   f_theta_shape <- runif(1, 1, 5)
   f_theta_scale <- runif(1, 1, 5)
+  # draw from a random gamma distribution for theta, i.e the values of theta for all the animals
+  # inside the sampling area.
+
   f_theta <- rgamma(n, shape = f_theta_shape, scale = f_theta_scale)
 
+  # Parameters of the effect of theta on the detection function g(y,theta)
   g_theta_shape <- runif(1, 1, 5)
   g_theta_raw <- pgamma(f_theta, shape = g_theta_shape, rate = 1)
+  # center the g_theta values to have mean 0 so its a valid sobol  component of the detection function g(y,theta)
   g_theta <- g_theta_raw - mean(g_theta_raw)
 
+
+  # the distribution of distances of detected and undetected animals is uniform across the transect width,
+  # so we can draw from a uniform distribution for the distances of all the animals inside the sampling area.
   f_y <- c(0.01, runif(n - 1, 0, w))
 
-  g_y1_scale <- runif(1, w / 4, w / 2)
+  # Parameters of the effect of y on the detection function g(y,theta)
+  g_y1_scale <- runif(1, w / 4, w / 2) # scale of the half normal.
   g_y1_raw <- sqrt(2) / (g_y1_scale * sqrt(pi)) * exp(-f_y^2 / (2 * g_y1_scale^2))
+  # again center so is a valid sobol component
   g_y1 <- g_y1_raw - mean(g_y1_raw)
+
+  # Due to the fact that we need the detection function to be =1 at y=0 for all theta
+  # we need to impose that g_y1(0) = 1- g_0, and at the same time that
+  #
 
   g_y1_theta <- g_y1 * g_theta
 

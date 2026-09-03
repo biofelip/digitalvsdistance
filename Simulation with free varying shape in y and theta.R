@@ -1,4 +1,4 @@
-#Simulation with free varying variance contributions but a super flexible beta shape  for the
+# Simulation with free varying variance contributions but a super flexible beta shape  for the
 # g_y
 library(tidyverse)
 library(data.table)
@@ -7,14 +7,14 @@ source("utils.R")
 nsim <- 10000
 n <- 1e4
 set.seed(0.101992)
-high_r_y <- FALSE
+high_r_y <- TRUE
 sim_summary_list <- vector("list", nsim)
 detected_df_list <- vector("list", nsim)
-type="low_r_y"
-number_file="2"
-if(high_r_y){
-  type="high_r_y"
-  number_file="2_2"
+type <- "low_r_y"
+number_file <- "2"
+if (high_r_y) {
+  type <- "high_r_y"
+  number_file <- "2_2"
 }
 gc()
 
@@ -28,144 +28,144 @@ for (s in 1:nsim) {
     names(r) <- c("y", "theta", "int")
   } else {
     r <- rgamma(3, shape = 1)
-    r <- (r / sum(r))*0.1
-    r <- c(0.9+r[1],r[2],r[3])
+    r <- (r / sum(r)) * 0.1
+    r <- c(0.9 + r[1], r[2], r[3])
     names(r) <- c("y", "theta", "int")
   }
 
-    f_theta_alfa <- runif(1, 1, 4)
-    f_theta_beta<- runif(1, 1, 4)
-    f_theta <- rbeta(n, shape1 = f_theta_alfa, shape2 = f_theta_beta)
+  f_theta_alfa <- runif(1, 1, 4)
+  f_theta_beta <- runif(1, 1, 4)
+  f_theta <- rbeta(n, shape1 = f_theta_alfa, shape2 = f_theta_beta)
 
-    #Pit of f_theta
-    u_theta = pbeta(f_theta, shape1 = f_theta_alfa, shape2 = f_theta_beta)
+  # Pit of f_theta
+  u_theta <- pbeta(f_theta, shape1 = f_theta_alfa, shape2 = f_theta_beta)
 
-    g_theta_alfa <- runif(1, 1, 4)
-    g_theta_beta<- runif(1, 1, 4)
-    g_theta_raw <- dbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
-    g_theta <- g_theta_raw - mean(g_theta_raw)
+  g_theta_alfa <- runif(1, 1, 4)
+  g_theta_beta <- runif(1, 1, 4)
+  g_theta_raw <- dbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
+  g_theta <- g_theta_raw - mean(g_theta_raw)
 
-    # fy is already a uniform
-    f_y <- c(0.01, runif(n - 1, 0, w))
-    u_y = punif(f_y, 0, w)
+  # fy is already a uniform
+  f_y <- c(0.01, runif(n - 1, 0, w))
+  u_y <- punif(f_y, 0, w)
 
-    g_y1_alfa  = runif(1, 1, 4)
-    g_y1_beta <- runif(1, 1, 4)
-    g_y1_raw <- dbeta(u_y, shape1 = g_y1_alfa, shape2 = g_y1_beta)
-    g_y1 <- g_y1_raw - mean(g_y1_raw)
+  g_y1_alfa <- runif(1, 1, 4)
+  g_y1_beta <- runif(1, 1, 4)
+  g_y1_raw <- dbeta(u_y, shape1 = g_y1_alfa, shape2 = g_y1_beta)
+  g_y1 <- g_y1_raw - mean(g_y1_raw)
 
-    # the interaction will be defined with a gaussian copula between the two variables with a random
-    # correlation coefficient
-    rho <- runif(1, -0.9, 0.9)  # Kendall's tau range
-    z_y <- qnorm(u_y)      # Convert u_y to standard normal
-    z_theta <- qnorm(u_theta)  # Convert u_theta to standard normal
+  # the interaction will be defined with a gaussian copula between the two variables with a random
+  # correlation coefficient
+  rho <- runif(1, -0.9, 0.9) # Kendall's tau range
+  z_y <- qnorm(u_y) # Convert u_y to standard normal
+  z_theta <- qnorm(u_theta) # Convert u_theta to standard normal
 
-    Sigma <- matrix(c(1, rho, rho, 1), nrow=2)
-    L <- chol(Sigma)  # Upper triangular
-    z_corr <- t(L) %*% rbind(z_y, z_theta)
-    z_y_corr <- z_corr[1, ]
-    z_theta_corr <- z_corr[2, ]
+  Sigma <- matrix(c(1, rho, rho, 1), nrow = 2)
+  L <- chol(Sigma) # Upper triangular
+  z_corr <- t(L) %*% rbind(z_y, z_theta)
+  z_y_corr <- z_corr[1, ]
+  z_theta_corr <- z_corr[2, ]
 
-    v_y <- pnorm(z_y_corr)
-    v_theta <- pnorm(z_theta_corr)
+  v_y <- pnorm(z_y_corr)
+  v_theta <- pnorm(z_theta_corr)
 
-    g_y1_theta_raw <- v_y**2 * v_theta
-    g_y1_theta <- g_y1_theta_raw - mean(g_y1_theta_raw)
+  g_y1_theta_raw <- v_y**2 * v_theta
+  g_y1_theta <- g_y1_theta_raw - mean(g_y1_theta_raw)
 
-    var_y <- var(g_y1)
-    var_th <- var(g_theta)
-    var_int <- var(g_y1_theta)
+  var_y <- var(g_y1)
+  var_th <- var(g_theta)
+  var_int <- var(g_y1_theta)
 
-    target <- V * r
+  target <- V * r
 
-    a_y <- sqrt(target["y"] / var_y)
-    a_th <- sqrt(target["theta"] / var_th)
-    a_int <- sqrt(target["int"] / var_int)
-
-
-    g_raw <- g0 + a_y * g_y1 + a_th * g_theta + a_int * g_y1_theta
-    # rescale based on the  new assumption that g(0,theta)=1 for all theta
-    # g <- g_raw / g_raw[match(0.01, f_y)]
-    # rescale based on the assumption that g(y,theta)=1 at the max point of the detection curve
-    # no min max sacling will be done because we dont want to assume that there are zero detection zones
-    g <- g_raw/max(g_raw)
-    g <- pmax(g, sd(g)/10) # the min value allowed is a tenth of the standard deviation of detection
-    # save the points that corresponde to max detection
-    max_point= which.max(g_raw )
-    max_y= f_y[max_point]
-    max_theta= f_theta[max_point]
+  a_y <- sqrt(target["y"] / var_y)
+  a_th <- sqrt(target["theta"] / var_th)
+  a_int <- sqrt(target["int"] / var_int)
 
 
-    v_y_real <- var(a_y * g_y1)
-    v_th_real <- var(a_th * g_theta)
-    v_int_real <- var(a_int * g_y1_theta)
-    v_total <- v_y_real + v_th_real + v_int_real
+  g_raw <- g0 + a_y * g_y1 + a_th * g_theta + a_int * g_y1_theta
+  # rescale based on the  new assumption that g(0,theta)=1 for all theta
+  # g <- g_raw / g_raw[match(0.01, f_y)]
+  # rescale based on the assumption that g(y,theta)=1 at the max point of the detection curve
+  # no min max sacling will be done because we dont want to assume that there are zero detection zones
+  g <- g_raw / max(g_raw)
+  g <- pmax(g, sd(g) / 10) # the min value allowed is a tenth of the standard deviation of detection
+  # save the points that corresponde to max detection
+  max_point <- which.max(g_raw)
+  max_y <- f_y[max_point]
+  max_theta <- f_theta[max_point]
 
-    detected <- rbinom(n, 1, g)
 
-    sim_summary_list[[s]] <- data.table(
-        # parameters of the simulation
-        sim = s,
-        w = w,
-        g_0 = g0,
+  v_y_real <- var(a_y * g_y1)
+  v_th_real <- var(a_th * g_theta)
+  v_int_real <- var(a_int * g_y1_theta)
+  v_total <- v_y_real + v_th_real + v_int_real
 
-        # location of maximum detection (used to anchor the max-rescale)
-        max_y = max_y,
-        max_theta = max_theta,
+  detected <- rbinom(n, 1, g)
 
-        # hyper parameters of the distribution of theta
-        f_theta_alfa = f_theta_alfa,
-        f_theta_beta = f_theta_beta,
+  sim_summary_list[[s]] <- data.table(
+    # parameters of the simulation
+    sim = s,
+    w = w,
+    g_0 = g0,
 
-        # hyper parameters of the detection function by distance
-        g_y1_alfa = g_y1_alfa,
-        g_y1_beta = g_y1_beta,
+    # location of maximum detection (used to anchor the max-rescale)
+    max_y = max_y,
+    max_theta = max_theta,
 
-        # hyper parameters of the detection function by theta
-        g_theta_alfa = g_theta_alfa,
-        g_theta_beta = g_theta_beta,
+    # hyper parameters of the distribution of theta
+    f_theta_alfa = f_theta_alfa,
+    f_theta_beta = f_theta_beta,
 
-        # hyper parameters of the interaction
-        copula_rho = rho,
+    # hyper parameters of the detection function by distance
+    g_y1_alfa = g_y1_alfa,
+    g_y1_beta = g_y1_beta,
 
-        # range of realized detection probability
-        g_min = min(g),
-        g_max = max(g),
+    # hyper parameters of the detection function by theta
+    g_theta_alfa = g_theta_alfa,
+    g_theta_beta = g_theta_beta,
 
-        # values of the target variance and realized variance
-        target_r_y = r["y"],
-        target_r_theta = r["theta"],
-        target_r_int = r["int"],
-        realized_r_y = v_y_real / v_total,
-        realized_r_theta = v_th_real / v_total,
-        realized_r_int = v_int_real / v_total,
-        V_realized = v_total
-      )
+    # hyper parameters of the interaction
+    copula_rho = rho,
 
-      detected_df_list[[s]] <- data.table(
-        # linking key back to sim_summary
-        sim = s,
-        object = 1:n,
+    # range of realized detection probability
+    g_min = min(g),
+    g_max = max(g),
 
-        # values of the distribution of distances and its PIT
-        y = f_y,
-        u_y = u_y,
+    # values of the target variance and realized variance
+    target_r_y = r["y"],
+    target_r_theta = r["theta"],
+    target_r_int = r["int"],
+    realized_r_y = v_y_real / v_total,
+    realized_r_theta = v_th_real / v_total,
+    realized_r_int = v_int_real / v_total,
+    V_realized = v_total
+  )
 
-        # values of the distribution of theta and its PIT
-        theta = f_theta,
-        u_theta = u_theta,
+  detected_df_list[[s]] <- data.table(
+    # linking key back to sim_summary
+    sim = s,
+    object = 1:n,
 
-        # values of the distribution of the interaction
-        copula_v_y = v_y,
-        copula_v_theta = v_theta,
+    # values of the distribution of distances and its PIT
+    y = f_y,
+    u_y = u_y,
 
-        # probability of detection
-        g = g,
+    # values of the distribution of theta and its PIT
+    theta = f_theta,
+    u_theta = u_theta,
 
-        # detection yes or no
-        detected = detected
-      )
-  }
+    # values of the distribution of the interaction
+    copula_v_y = v_y,
+    copula_v_theta = v_theta,
+
+    # probability of detection
+    g = g,
+
+    # detection yes or no
+    detected = detected
+  )
+}
 
 length(detected_df_list)
 length(sim_summary_list)
@@ -173,12 +173,12 @@ length(sim_summary_list)
 # save the list of dataframes
 # saveRDS(detected_df_list, file = "L:/Documents/digitalvsdistance_results/2_2_detected_df_list_high_variance_free_shape_g_y.rds")
 
-# one random example
-index= sample(1:nsim, 1)
-example_df= detected_df_list[[index]]
-example_summary= sim_summary_list[[index]]
-# plot the 3 distributions and the points on top
-plot_sim_diagnostics(example_df, example_summary,y_shape = "beta", sim_id = index)
+# # one random example
+# index= sample(1:nsim, 1)
+# example_df= detected_df_list[[index]]
+# example_summary= sim_summary_list[[index]]
+# # plot the 3 distributions and the points on top
+# plot_sim_diagnostics(example_df, example_summary,y_shape = "beta", sim_id = index)
 # # save the dataframe with arrow because is too heavy right now
 # # this is soooo much faster than rbind
 detected_df_FULL <- data.table::rbindlist(detected_df_list)
@@ -186,6 +186,6 @@ dim(detected_df_FULL)
 
 
 # # save the dataframe with arrow because is too heavy right now
-saveRDS(sim_summary_list, file = glue("L:/Documents/digitalvsdistance_results/{number_file}_sim_summary_list_{type}_beta_g_y_smooth_scale.parquet"))
+saveRDS(sim_summary_list, file = glue("E:/digitalvsdistance_results/new_results/{number_file}_sim_summary_list_{type}_beta_g_y_smooth_scale.parquet"))
 
-arrow::write_parquet(detected_df_FULL, glue("L:/Documents/digitalvsdistance_results/{number_file}_detected_df_list_{type}_beta_g_y_smooth_scale.parquet"))
+arrow::write_parquet(detected_df_FULL, glue("E:/digitalvsdistance_results/new_results/{number_file}_detected_df_list_{type}_beta_g_y_smooth_scale.parquet"))

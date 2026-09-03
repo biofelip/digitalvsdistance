@@ -95,7 +95,7 @@ fit_true_shape <- function(full_sim_df, w, n_detected) {
     return(list(P_c_true_shape = NA_real_, N_hat_true_shape = NA_real_))
   }
 
-  y_grid <- seq(min(full_sim_df$y), w, length.out = 500)
+  y_grid <- seq(min(full_sim_df$y), w, length.out = 200)
   g_y_marginal <- predict(gam_fit, newdata = data.frame(y = y_grid))
 
   anchor <- max(g_y_marginal, na.rm = TRUE)
@@ -162,39 +162,49 @@ fit_all_approaches <- function(fit_data, full_sim_df, w, true_P_c, n_strata = 4)
 nsim <- 10000
 
 list_detected_df <- c(
-  "E:/digitalvsdistance_results/1_1_detected_df_list_high_variance_hn_g_y.parquet",
-  "E:/digitalvsdistance_results/1_detected_df_list_hn_g_y.parquet",
-  "E:/digitalvsdistance_results/2_2_detected_df_list_high_variance_free_shape_g_y.parquet",
-  "E:/digitalvsdistance_results/2_detected_df_list_free_shape_g_y.parquet",
-  "E:/digitalvsdistance_results/3_detected_df_list_uniform_g_y.parquet"
+  "E:/digitalvsdistance_results/new_results/1_1_detected_df_list_high_r_y_hn_g_y_smooth_scale.parquet",
+  "E:/digitalvsdistance_results/new_results/1_detected_df_list_low_r_y_hn_g_y_smooth_scale.parquet",
+  "E:/digitalvsdistance_results/new_results/2_2_detected_df_list_high_r_y_beta_g_y_smooth_scale.parquet",
+  "E:/digitalvsdistance_results/new_results/2_detected_df_list_low_r_y_beta_g_y_smooth_scale.parquet",
+  "E:/digitalvsdistance_results/new_results/3_detected_df_list_smooth_params_uniform_g_y.parquet"
 )
 
 list_sim_summary <- c(
-  "E:/digitalvsdistance_results/1_1_sim_summary_list_high_variance_hn_g_y.rds",
-  "E:/digitalvsdistance_results/1_sim_summary_list_hn_g_y.rds",
-  "E:/digitalvsdistance_results/2_2_sim_summary_list_high_variance_free_shape_g_y.rds",
-  "E:/digitalvsdistance_results/2_sim_summary_list_free_shape_g_y.rds",
-  "E:/digitalvsdistance_results/3_sim_summary_list_uniform_g_y.rds"
+  "E:/digitalvsdistance_results/new_results/1_1_sim_summary_list_high_r_y_hn_g_y_smooth_scale.rds",
+  "E:/digitalvsdistance_results/new_results/1_sim_summary_list_low_r_y_hn_g_y_smooth_scale.rds",
+  "E:/digitalvsdistance_results/new_results/2_2_sim_summary_list_high_r_y_beta_g_y_smooth_scale.rds",
+  "E:/digitalvsdistance_results/new_results/2_sim_summary_list_low_r_y_beta_g_y_smooth_scale.rds",
+  "E:/digitalvsdistance_results/new_results/3_sim_summary_list_smooth_params_uniform_g_y.rds"
 )
+# i <- sample(1:5, 1)
+# nsim <- 10
 
 
+library(profvis)
+# f <- function(nsim) {
 for (i in 1:5) {
   detected_df <- arrow::read_parquet(list_detected_df[i])
   sim_summary <- readRDS(list_sim_summary[i])
   sim_summary <- data.table::rbindlist(sim_summary)
-  deteced_df <- data.table::data.table(detected_df)
-  results_pc <- data.table::data.table()
+  detected_df <- data.table::data.table(detected_df)
+  data.table::setkey(detected_df, sim)
+  data.table::setkey(sim_summary, sim)
+  results_list <- vector("list", nsim)
   for (spick in 1:nsim) {
-    fit_data <- detected_df[sim == spick & detected == 1, .(distance = y, theta = theta)]
-    real_Pc <- detected_df[sim == spick, mean(g)]
+    sim_data <- detected_df[sim == spick]
+    fit_data <- sim_data[detected == 1, .(distance = y, theta = theta)]
+    real_Pc <- sim_data[, mean(g)]
     w_this_sim <- sim_summary[sim == spick]$w
-    result_row <- fit_all_approaches(fit_data, detected_df[sim == spick], w = w_this_sim, n_strata = 4, true_P_c = real_Pc)
-    results_pc <- rbind(results_pc, cbind(sim = spick, result_row))
+    result_row <- fit_all_approaches(fit_data, sim_data, w = w_this_sim, n_strata = 4, true_P_c = real_Pc)
+    results_list[[spick]] <- cbind(sim = spick, result_row)
   }
-  saveRDS(results_pc, file = glue("E:/digitalvsdistance_results/results_pc_{tools::file_path_sans_ext(basename(list_sim_summary[i]))}.rds"))
+  results_pc <- data.table::rbindlist(results_list)
+  saveRDS(results_pc, file = glue("E:/digitalvsdistance_results/new_results/results_pc_{tools::file_path_sans_ext(basename(list_sim_summary[i]))}.rds"))
   gc()
 }
+# }
 
+p <- profvis(f(10))
 # plot the difference between the observed and the real Pc  agains the proportion of
 # r_Y that they explain
 # fist join with the sim_summary
