@@ -68,6 +68,7 @@ plot_param_dist(results_pc, c("Uniform g_y"))
 
 # 1 Bias with change in r_y
 # 1.1 Just r_y
+windows()
 results_pc |>
   filter(Scenario != "Uniform g_y") %>%
   pivot_longer(c("P_c_plain", "P_c_cov", "P_c_strat", "P_c_uniform", "P_c_true_shape", "P_c_flexible"), names_to = "approach", values_to = "Pc") |>
@@ -85,8 +86,7 @@ results_pc |>
   xlab("Realized r_y") +
   ylab("Bias") +
   theme_minimal() +
-  facet_wrap(~Scenario, scales = "free_x") +
-  theme(legend.position = "right ")
+  facet_wrap(~Scenario, scales = "free_x")
 
 results_pc %>%
   filter(Scenario == "Uniform g_y") %>%
