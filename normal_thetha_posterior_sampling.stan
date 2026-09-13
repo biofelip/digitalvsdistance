@@ -8,13 +8,13 @@ data {
 }
 
 parameters {
-  real mu_theta;
-  real<lower=0> sigma;
+  real mu_p;
+  real<lower=0> sigma_p;
 }
 
 model {
-  mu_theta ~ normal(0.5, 1);
-  sigma_theta ~ normal(0, 1);
+  mu_p ~ normal(0.5, 1);
+  sigma_p ~ normal(0, 1);
 
-  y ~normal(mu_theta, sigma_theta) T[0, w];
+  theta ~normal(mu_p, sigma_p);
 }

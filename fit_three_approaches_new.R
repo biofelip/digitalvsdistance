@@ -11,12 +11,13 @@ library(data.table)
 
 
 # ---- compile all models ONCE, reused across every sim ----
-hn_y_model <- stan_model("hn_y_posterior_sampling.stan")
-hn_y_MCDS_model <- stan_model("hn_y_MCDS_half_normal.stan")
-beta_y_model <- stan_model("beta_y_posterior_sampling.stan")
-beta_y_MCDS_model <- stan_model("beta_y_MCDS_posterior_sampling.stan")
-beta_theta_model <- stan_model("beta_theta_posterior_sampling.stan")
-normal_theta_model <- stan_model("normal_thetha_posterior_sampling.stan")
+hn_y_model <- stan_model("hn_y_posterior_sampling.stan") #approach 1
+hn_y_MCDS_model <- stan_model("hn_y_MCDS_half_normal.stan") #approach 2
+#approach 3 is with hn_y_model but with post stratification 
+beta_y_model <- stan_model("beta_y_posterior_sampling.stan") #approach 4
+beta_y_MCDS_model <- stan_model("beta_y_MCDS_posterior_sampling.stan") #approach 5
+beta_theta_model <- stan_model("beta_theta_posterior_sampling.stan") #approach 6
+normal_theta_model <- stan_model("normal_thetha_posterior_sampling.stan") #approach 7
 
 # ---- Approach 1: plain distance-only half-normal ----
 fit_approach1 <- function(y, w) {
@@ -25,46 +26,69 @@ fit_approach1 <- function(y, w) {
     error = function(e) NULL
   )
   if (is.null(fit)) {
-    return(list(P_c = NA_real_, N_hat = NA_real_, converged = FALSE))
+    return(list(Pc_hat = NA, 
+                N_hat = NA, 
+                sigma_hat = NA, 
+                rhat = NA, 
+                lower = NA, 
+                upper = NA))
   }
 
   summary_sigma <- summary(
     fit,
     pars = "sigma",
-    probs = c(0.025, 0.975)
+    probs = c(0.1, 0.9)
   )$summary
   sigma_hat <- summary_sigma[, "mean"]
-
-  # Distance grid
-  y_grid <- seq(0, w, length.out = length(y))
-
-  # Fitted observed-distance density:
-  # truncated half-normal on [0, w]
-  f_obs_hat <- dnorm(y_grid, mean = 0, sd = sigma_hat) /
-    (pnorm(w / sigma_hat) - pnorm(0))
-
-  # Value of the fitted observed-distance density at y = 0
-  f_obs_hat_0 <- dnorm(0, mean = 0, sd = sigma_hat) /
-    (pnorm(w / sigma_hat) - pnorm(0))
-
-  # Rescale so that g_hat(0) = 1
-  g_hat <- f_obs_hat / f_obs_hat_0
-  # Estimated average detection probability
-  Pc_hat <- mean(g_hat)
-  list(P_c = P_c, N_hat = length(y) / P_c, converged = TRUE)
+  sigma_hat_lower <- summary_sigma["sigma", "10%"]
+  sigma_hat_upper <- summary_sigma["sigma", "90%"]
+  rhat_sigma <- summary(fit)$summary["sigma", "Rhat"]
+  p_hat_i <- exp(-y^2 / (2 * sigma_hat^2))
+  N_hat <- sum(1/p_hat_i)
+  P_c <- length(y) / N_hat
+  list(P_c = P_c, 
+      N_hat = N_hat,
+      sigma_hat = sigma_hat, 
+      rhat_sigma = rhat_sigma, 
+      lower = sigma_hat_lower, 
+      upper = sigma_hat_upper)
 }
 
 # ---- Approach 2: half-normal with theta on the scale (MCDS-style) ----
-fit_approach2 <- function(y, theta, w) {
+fit_approach2 <- function(y, theta, w, theta) {
   fit <- tryCatch(
-    optimizing(hn_cov_model, data = list(N = length(y), y = y, theta = theta, w = w)),
+    sampling(hn_y_MCDS_model, data = list(N = length(y), y = y, theta = theta, w = w)),
     error = function(e) NULL
   )
-  if (is.null(fit) || fit$return_code != 0) {
-    return(list(P_c_cov = NA_real_, N_hat_cov = NA_real_, converged = FALSE))
+  if (is.null(fit)) {
+    return(list(Pc_hat = NA, 
+      N_hat_cov = NA, 
+      sigma_hat = NA, 
+      rhat_beta_0 = NA,
+      rhat_beta_1 = NA,
+      lower = NA, 
+      upper = NA))
   }
-  p_hat_i <- fit$par[grepl("^P_c_i\\[", names(fit$par))]
-  list(P_c_cov = mean(p_hat_i), N_hat_cov = sum(1 / p_hat_i), converged = TRUE)
+    summary_betas <- summary(
+    fit,
+    pars = c("beta_0","beta_1"),
+    probs = c(0.1, 0.9)
+  )$summary
+  sigma_hat <- exp(summary_sigma["beta_0", "mean"] + summary_sigma["beta_1", "mean"] * theta)
+  sigma_hat_lower <- exp(summary_sigma["beta_0", "10%"] + summary_sigma["beta_1", "10%"]*theta)
+  sigma_hat_upper <-  exp(summary_sigma["beta_0", "90%"] + summary_sigma["beta_1", "90%"]*theta)
+  rhat_beta_0 <- summary(fit)$summary["beta_0", "Rhat"]
+  rhat_beta_1  <- summary(fit)$summary["beta_0", "Rhat"]
+  p_hat_i <- exp(-y^2 / (2 * sigma_hat^2))
+  N_hat <- sum(1/p_hat_i)
+  Pc_hat = length(y) / N_hat
+  list(Pc_hat = Pc_hat, 
+      N_hat_cov = N_hat, 
+      sigma_hat = mean(sigma_hat), 
+      rhat_beta_0 = rhat_beta_0,
+      rhat_beta_1 = rhat_beta_1,
+      lower = mean(sigma_hat_lower), 
+      upper = mean(sigma_hat_upper))
 }
 
 # ---- Approach 3: stratify theta into homogeneous cuts, fit approach-1 model per stratum ----
@@ -104,49 +128,322 @@ fit_approach3 <- function(y, theta, w, n_strata = 4) {
   )
 }
 
-# ---- Approach 4: true shape recovered exactly from the full simulated population ----
+# ---- Approach 4: Beta density for the distance 
+
+fit_approach4 <- function(y, w) {
+  fit = tryCatch(sampling(beta_y_model, data = list(N = length(y), y = y, w = w)),
+    error = function(e) NULL
+  )
+  if (is.null(fit)) {
+    return(list(Pc_hat = NA, 
+      N_hat = NA, 
+      alpha = NA, 
+      beta = NA,
+      rhat_alpha = NA,
+      rhat_beta = NA,
+      lower_alpha = NA,
+      lower_beta = NA,
+      upper_alpha = NA, 
+      upper_beta = NA))
+  }
+    summary_betas <- summary(
+    fit,
+    pars = c("alpha_p","beta_p"),
+    probs = c(0.1, 0.9)
+  )$summary
+  alpha_hat = summary_betas["alpha_p", "mean"]
+  beta_hat = summary_betas["beta_p", "mean"]
+  rhat_alpha = summary_betas["alpha_p", "Rhat"]
+  rhat_beta = summary_betas["beta_p", "Rhat"]
+  lower_alpha = summary_betas["alpha_p", "10%"]
+  lower_beta = summary_betas["beta_p", "10%"]
+  upper_alpha = summary_betas["alpha_p", "90%"]
+  upper_beta = summary_betas["beta_p", "90%"]
+  z <- y / w
+  f_z <- dbeta(z, alpha_hat, beta_hat)
+  mode <- (alpha_hat - 1) / (alpha_hat + beta_hat - 2)   # only if alpha_hat>1 & beta_hat>1
+  anchor <- dbeta(mode, alpha_hat, beta_hat)
+  p_hat_i <- f_z / anchor
+  N_hat = sum(1 / p_hat_i)
+  Pc_hat  = length(y) / N_hat
+  return(list(Pc_hat = Pc_hat, 
+      N_hat = N_hat, 
+      alpha = alpha_hat, 
+      beta = beta_hat,
+      rhat_alpha = rhat_alpha,
+      rhat_beta = rhat_beta,
+      lower_alpha = lower_alpha,
+      lower_beta = lower_beta,
+      upper_alpha = upper_alpha, 
+      upper_beta = upper_beta))
+
+}
+
+
+#----- Approach 5: Beta density for the distance with MCDS
+fit_approach5 <- function(y, w, theta) {
+  fit = tryCatch(sampling(beta_y_MCDS_model, data = list(N = length(y), y = y, w = w, theta = theta)),
+    error = function(e) NULL
+  )
+  if (is.null(fit)) {
+    return(list(Pc_hat = NA, 
+      N_hat = NA, 
+      alpha = NA, 
+      beta = NA,
+      rhat_alpha = NA,
+      rhat_beta = NA,
+      lower_alpha = NA,
+      lower_beta = NA,
+      upper_alpha = NA, 
+      upper_beta = NA))
+  }
+    summary_betas <- summary(
+    fit,
+    pars = c("mu","gamma_0","gamma_1"),
+    probs = c(0.1, 0.9)
+  )$summary
+  mu_hat = summary_betas["mu", "mean"]
+  gamma_0_hat = summary_betas["gamma_0", "mean"]
+  gamma_1_hat = summary_betas["gamma_1", "mean"]
+  rhat_mu = summary_betas["mu", "Rhat"]
+  rhat_gamma_0 = summary_betas["gamma_0", "Rhat"]
+  rhat_gamma_1 = summary_betas["gamma_1", "Rhat"]
+  lower_mu = summary_betas["mu", "10%"]
+  lower_gamma_0 = summary_betas["gamma_0", "10%"]
+  lower_gamma_1 = summary_betas["gamma_1", "10%"]
+  upper_mu = summary_betas["mu", "90%"]
+  upper_gamma_0 = summary_betas["gamma_0", "90%"]
+  upper_gamma_1 = summary_betas["gamma_1", "90%"]
+  kappa = exp(gamma_0_hat + gamma_1_hat * theta)
+  kappa_lower = exp(lower_gamma_0 + lower_gamma_1 * theta)
+  kappa_upper = exp(upper_gamma_0 + upper_gamma_1 * theta)
+  alpha_hat = mu_hat * kappa
+  beta_hat = (1 - mu_hat) * kappa
+  lower_alpha = lower_mu * kappa_lower
+  lower_beta = (1 - lower_mu) * kappa_lower
+  upper_alpha = upper_mu * kappa_upper
+  upper_beta = (1 - upper_mu) * kappa_upper
+  z <- y / w
+  mode_i <- ifelse(alpha_hat > 1 & beta_hat > 1,
+                  (alpha_hat - 1) / (alpha_hat + beta_hat - 2),
+                  NA)  # or fall back to grid search for these individuals
+  anchor_i <- dbeta(mode_i, alpha_hat, beta_hat)
+  p_hat_i  <- f_z / anchor_i
+  f_z <- dbeta(z, alpha_hat, beta_hat)     # density at each individual's own observed z_i
+  p_hat_i <- f_z / anchor_i
+  N_hat = sum(1 / p_hat_i)
+  Pc_hat  = length(y) / N_hat
+  return(list(Pc_hat = Pc_hat, 
+      N_hat = N_hat, 
+      alpha = alpha_hat, 
+      beta = beta_hat,
+      rhat_mu = rhat_mu,
+      rhat_gamma_0 = rhat_gamma_0,
+      rhat_gamma_1 = rhat_gamma_1,
+      lower_alpha = lower_alpha,
+      lower_beta = lower_beta,
+      upper_alpha = upper_alpha, 
+      upper_beta = upper_beta))
+
+}
+
+# ---- Approach 6 Beta density on theta
+fit_approach6 <- function(theta) {
+  fit = tryCatch(sampling(beta_theta_model, data = list(N = length(theta), theta = theta)),
+    error = function(e) NULL
+  )
+  if (is.null(fit)) {
+    return(list(Pc_hat = NA, 
+      N_hat = NA, 
+      alpha = NA, 
+      beta = NA,
+      rhat_alpha = NA,
+      rhat_beta = NA,
+      lower_alpha = NA,
+      lower_beta = NA,
+      upper_alpha = NA, 
+      upper_beta = NA))
+  }
+    summary_betas <- summary(
+    fit,
+    pars = c("alpha_p","beta_p"),
+    probs = c(0.1, 0.9)
+  )$summary
+  alpha_hat = summary_betas["alpha_p", "mean"]
+  beta_hat = summary_betas["beta_p", "mean"]
+  rhat_alpha = summary_betas["alpha_p", "Rhat"]
+  rhat_beta = summary_betas["beta_p", "Rhat"]
+  lower_alpha = summary_betas["alpha_p", "10%"]
+  lower_beta = summary_betas["beta_p", "10%"]
+  upper_alpha = summary_betas["alpha_p", "90%"]
+  upper_beta = summary_betas["beta_p", "90%"]
+  z <- (theta - min(theta)) / (max(theta) - min(theta))
+  f_z <- dbeta(z, alpha_hat, beta_hat)
+  mode = NA
+  if (alpha_hat > 1 & beta_hat > 1){
+  mode <- (alpha_hat - 1) / (alpha_hat + beta_hat - 2)
+  }  # only if alpha_hat>1 & beta_hat>1
+  anchor <- dbeta(mode, alpha_hat, beta_hat)
+  p_hat_i <- f_z / anchor
+  N_hat = sum(1 / p_hat_i)
+  Pc_hat  = length(theta) / N_hat
+  return(list(Pc_hat = Pc_hat, 
+      N_hat = N_hat, 
+      alpha = alpha_hat, 
+      beta = beta_hat,
+      rhat_alpha = rhat_alpha,
+      rhat_beta = rhat_beta,
+      lower_alpha = lower_alpha,
+      lower_beta = lower_beta,
+      upper_alpha = upper_alpha, 
+      upper_beta = upper_beta))
+
+}
+
+# --- Aproach 7: Normal on theta
+fit_approach7 <- function(theta) {
+  fit = tryCatch(sampling(normal_theta_model, data = list(N = length(theta), theta = theta)),
+    error = function(e) NULL
+  )
+  if (is.null(fit)) {
+    return(list(Pc_hat = NA, 
+      N_hat = NA, 
+      mu = NA, 
+      sigma = NA,
+      rhat_mu = NA,
+      rhat_sigma = NA,
+      lower_mu = NA,
+      lower_sigma = NA,
+      upper_mu = NA, 
+      upper_sigma = NA))
+  }
+  summary_betas <- summary(
+    fit,
+    pars = c("mu_p","sigma_p"),
+    probs = c(0.1, 0.9)
+  )$summary
+  mu_hat = summary_betas["mu_p", "mean"]
+  sigma_hat = summary_betas["sigma_p", "mean"]
+  rhat_mu = summary_betas["mu_p", "Rhat"]
+  rhat_sigma = summary_betas["sigma_p", "Rhat"]
+  lower_mu = summary_betas["mu_p", "10%"]
+  lower_sigma = summary_betas["sigma_p", "10%"]
+  upper_mu = summary_betas["mu_p", "90%"]
+  upper_sigma = summary_betas["sigma_p", "90%"]
+  anchor <- dnorm(mu_hat, mu_hat, sigma_hat)   # = 1/(sigma_hat*sqrt(2*pi))
+  p_hat_i <- dnorm(theta, mu_hat, sigma_hat) / anchor
+  N_hat = sum(1 / p_hat_i)
+  Pc_hat  = length(theta) / N_hat
+  return(list(Pc_hat = Pc_hat, 
+      N_hat = N_hat, 
+      mu = mu_hat, 
+      sigma = sigma_hat,
+      rhat_mu = rhat_mu,
+      rhat_sigma = rhat_sigma,
+      lower_mu = lower_mu,
+      lower_sigma = lower_sigma,
+      upper_mu = upper_mu, 
+      upper_sigma = upper_sigma))
+
+}
+
+
+# ---- Approach 8: true shape recovered exactly from the full simulated population ----
 # Not a fitted model -- uses the actual known g(y,theta) surface (averaged over
-# theta) from detected_df directly, then applies the classical g(0)=1 anchor.
-# Isolates the bias from the anchoring CONVENTION itself, with zero estimation
-# error, since nothing here is fit from noisy detected-only data.
+# theta) from detected_df directly. The idea is to show that even with the
+# ability to recover g_Y perfectly, there can still be bias if g_Y has high
+# variance (marginal smoothing over theta).
+
 library(mgcv)
 
 fit_true_shape <- function(full_sim_df, w, n_detected) {
+
   gam_fit <- tryCatch(
     mgcv::bam(g ~ s(y), data = full_sim_df),
     error = function(e) NULL
   )
+
   if (is.null(gam_fit)) {
-    return(list(P_c_true_shape = NA_real_, N_hat_true_shape = NA_real_))
+    return(list(
+      P_c_true_shape_anchor0     = NA_real_,
+      P_c_true_shape_anchormax   = NA_real_,
+      N_hat_true_shape_anchor0   = NA_real_,
+      N_hat_true_shape_anchormax = NA_real_
+    ))
   }
 
-  y_grid <- seq(min(full_sim_df$y), w, length.out = 200)
+  y_grid <- seq(0, w, length.out = 200)
   g_y_marginal <- predict(gam_fit, newdata = data.frame(y = y_grid))
 
-  anchor <- max(g_y_marginal, na.rm = TRUE)
-  P_c_true_shape <- mean(g_y_marginal / anchor)
+  g0   <- predict(gam_fit, newdata = data.frame(y = 0))
+  gmax <- max(g_y_marginal, na.rm = TRUE)
+
+  Pc_anchor0   <- mean(g_y_marginal / g0)
+  Pc_anchormax <- mean(g_y_marginal / gmax)
+
+  N_hat_anchor0   <- n_detected / Pc_anchor0
+  N_hat_anchormax <- n_detected / Pc_anchormax
 
   list(
-    P_c_true_shape = P_c_true_shape,
-    N_hat_true_shape = n_detected / P_c_true_shape
+    P_c_true_shape_anchor0     = Pc_anchor0,
+    P_c_true_shape_anchormax   = Pc_anchormax,
+    N_hat_true_shape_anchor0   = N_hat_anchor0,
+    N_hat_true_shape_anchormax = N_hat_anchormax
   )
 }
 
-# ---- Approach 5: flexible beta-density shape, anchored at its own max ----
-# Generalizes "g(0)=1" to "wherever detection peaked, call that 1" -- does
-# NOT assume the peak is at y=0, unlike approaches 1-4. Use when the shape
-# is known/suspected not to be half-normal-like.
-fit_approach5 <- function(y, w, n_grid = 100) {
-  fit <- tryCatch(
-    optimizing(hn_flex_model, data = list(N = length(y), y = y, w = w, n_grid = n_grid)),
-    error = function(e) NULL
-  )
-  if (is.null(fit) || fit$return_code != 0) {
-    return(list(P_c = NA_real_, N_hat = NA_real_, converged = FALSE))
-  }
-  P_c <- fit$par[["P_c"]]
-  list(P_c = P_c, N_hat = length(y) / P_c, converged = TRUE)
-}
+
+# # ---- Approach 8: true shape recovered exactly from the full simulated population ----
+# # Not a fitted model -- uses the actual known g(y,theta) surface (averaged over
+# # theta) from detected_df directly, the idea is to proof that even with the hability to 
+# # recover g_Y perfectly there still be bias if it not high variance of g_Y. 
+# library(mgcv)
+
+# fit_true_shape <- function(full_sim_df, w, n_detected ) {
+#   gam_fit <- tryCatch(
+#     mgcv::bam(g ~ s(y), data = full_sim_df),
+#     error = function(e) NULL
+#   )
+#   if (is.null(gam_fit)) {
+#     return(list(P_c_true_shape = NA_real_, N_hat_true_shape = NA_real_))
+#   }
+
+#   y_grid <- seq(min(full_sim_df$y), w, length.out = 200)
+#   g_y_marginal <- predict(gam_fit, newdata = data.frame(y = y_grid))
+
+#   g0 <- predict(gam_fit, newdata = data.frame(y = 0))
+#   gmax <- max(g_y, na.rm = TRUE)
+
+#   Pc_anchor0   <- mean(g_y / g0)
+#   Pc_anchormax <- mean(g_y / gmax)
+
+#   N_hat_anchor0   <- n_detected / Pc_anchor0
+#   N_hat_anchormax <- n_detected / Pc_anchormax
+
+
+#   list(
+#     P_c_true_shape_anchor0 = Pc_anchor0,
+#     P_c_true_shape_anchormax = Pc_anchormax,
+#     N_hat_true_shape_anchor0 = N_hat_anchor0,
+#     N_hat_true_shape_anchormax = N_hat_anchormax,
+#   )
+# }
+
+# # ---- Approach 5: flexible beta-density shape, anchored at its own max ----
+# # Generalizes "g(0)=1" to "wherever detection peaked, call that 1" -- does
+# # NOT assume the peak is at y=0, unlike approaches 1-4. Use when the shape
+# # is known/suspected not to be half-normal-like.
+# fit_approach5 <- function(y, w, n_grid = 100) {
+#   fit <- tryCatch(
+#     optimizing(hn_flex_model, data = list(N = length(y), y = y, w = w, n_grid = n_grid)),
+#     error = function(e) NULL
+#   )
+#   if (is.null(fit) || fit$return_code != 0) {
+#     return(list(P_c = NA_real_, N_hat = NA_real_, converged = FALSE))
+#   }
+#   P_c <- fit$par[["P_c"]]
+#   list(P_c = P_c, N_hat = length(y) / P_c, converged = TRUE)
+# }
 
 # ---- combined wrapper: run all five, return one summary row ----
 fit_all_approaches <- function(fit_data, full_sim_df, w, true_P_c, n_strata = 4) {

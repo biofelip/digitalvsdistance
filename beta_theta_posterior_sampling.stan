@@ -6,9 +6,12 @@ data{
 }
 
 transformed data {
-    vector<lower=0, upper=1>[N] z;
-    z=theta/max(theta);
+  vector<lower=0, upper=1>[N] z;
+  real theta_min = min(theta);
+  real theta_max = max(theta);
+  z = (theta - theta_min) / (theta_max - theta_min);
 }
+
 
 
 parameters {
