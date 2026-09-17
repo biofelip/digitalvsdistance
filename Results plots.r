@@ -6,28 +6,29 @@ library(tidyr)
 library(glue)
 # load all the results files
 results_files <- c(
-  "E:/digitalvsdistance_results/new_results/results_pc_1_1_sim_summary_list_high_r_y_hn_g_y_smooth_scale.rds",
-  "E:/digitalvsdistance_results/new_results/results_pc_1_sim_summary_list_low_r_y_hn_g_y_smooth_scale.rds",
-  "E:/digitalvsdistance_results/new_results/results_pc_2_2_sim_summary_list_high_r_y_beta_g_y_smooth_scale.rds",
-  "E:/digitalvsdistance_results/new_results/results_pc_2_sim_summary_list_low_r_y_beta_g_y_smooth_scale.rds",
-  "E:/digitalvsdistance_results/new_results/results_pc_3_sim_summary_list_smooth_params_uniform_g_y.rds"
+  "E:/digitalvsdistance_results/new_results/results_pc_1_2_sim_summary_list_high_r_y_halfnormal_g_y_smooth_scale3.csv",
+  "E:/digitalvsdistance_results/new_results/results_pc_1_sim_summary_list_low_r_y_halfnormal_g_y_smooth_scale3.csv",
+  "E:/digitalvsdistance_results/new_results/results_pc_2_2_sim_summary_list_high_r_y_beta_g_y_smooth_scale3.csv",
+  "E:/digitalvsdistance_results/new_results/results_pc_2_sim_summary_list_low_r_y_beta_g_y_smooth_scale3.csv",
+  "E:/digitalvsdistance_results/new_results/results_pc_3_sim_summary_list_high_r_y_halfnormal_g_y_smooth_scale3.csv"
 )
 
 summary_files <- c(
-  "E:/digitalvsdistance_results/new_results/1_1_sim_summary_list_high_r_y_hn_g_y_smooth_scale.rds",
-  "E:/digitalvsdistance_results/new_results/1_sim_summary_list_low_r_y_hn_g_y_smooth_scale.rds",
+  "E:/digitalvsdistance_results/new_results/1_2_sim_summary_list_high_r_y_halfnormal_g_y_smooth_scale.rds",
+  "E:/digitalvsdistance_results/new_results/1_sim_summary_list_low_r_y_halfnormal_g_y_smooth_scale.rds",
   "E:/digitalvsdistance_results/new_results/2_2_sim_summary_list_high_r_y_beta_g_y_smooth_scale.rds",
   "E:/digitalvsdistance_results/new_results/2_sim_summary_list_low_r_y_beta_g_y_smooth_scale.rds",
-  "E:/digitalvsdistance_results/new_results/3_sim_summary_list_smooth_params_uniform_g_y.rds"
+  "E:/digitalvsdistance_results/new_results/3_sim_summary_list_high_r_y_halfnormal_g_y_smooth_scale.rds"
 )
 summary_list <- lapply(summary_files, readRDS)
 summary_list <- lapply(summary_list, data.table::rbindlist)
-results_list <- lapply(results_files, readRDS)
+results_list <- lapply(results_files, read.csv)
 names(results_list) <- names(summary_list) <- c("Half normal g_y, high r_y", "half normal g_y", "Beta g_y, high r_y", "Beta g_y", "Uniform g_y")
 
 results_pc <- data.table::rbindlist(results_list, idcol = "Scenario")
 summary_sim_pc <- data.table::rbindlist(summary_list, idcol = "Scenario", fill = TRUE)
 results_pc <- results_pc[summary_sim_pc, on = c("Scenario", "sim")]
+results_pc$Scenario %>% table()
 results_pc$Scenario <- factor(results_pc$Scenario, levels = c("Half normal g_y, high r_y", "half normal g_y", "Beta g_y, high r_y", "Beta g_y", "Uniform g_y"))
 dim(results_pc)
 
@@ -71,57 +72,76 @@ plot_param_dist(results_pc, c("Uniform g_y"))
 windows()
 results_pc |>
   filter(Scenario != "Uniform g_y") %>%
-  pivot_longer(c("P_c_plain", "P_c_cov", "P_c_strat", "P_c_uniform", "P_c_true_shape", "P_c_flexible"), names_to = "approach", values_to = "Pc") |>
+  pivot_longer(c(
+    "P_c_plain", "P_c_cov", "P_c_strat", "P_c_beta", "P_c_beta_cov",
+    "P_c_beta_theta", "P_c_normal_theta", "P_c_uniform", "P_c_true_anchor0",
+    "P_c_true_anchormax"
+  ), names_to = "approach", values_to = "Pc") |>
   mutate(approach = case_when(
     approach == "P_c_plain" ~ "DS traditional",
     approach == "P_c_cov" ~ "MCDS",
     approach == "P_c_strat" ~ "Stratification",
+    approach == "P_c_beta" ~ "Beta shape on distance",
+    approach == "P_c_beta_cov" ~ "Beta shape on distance with MCDS",
+    approach == "P_c_beta_theta" ~ "Beta shape on theta",
+    approach == "P_c_normal_theta" ~ "Normal shape on theta",
     approach == "P_c_uniform" ~ "Strip sampling",
-    approach == "P_c_true_shape" ~ "Ideal estimation",
-    approach == "P_c_flexible" ~ "Flexible shape model"
-  )) |>
+    approach == "P_c_true_anchor0" ~ "Ideal estimation, anchor at g(0)",
+    approach == "P_c_true_anchormax" ~ "Ideal estimation, anchor at g(y*)"
+  )) %>%
+  filter(approach != "Ideal estimation, anchor at g(0)") %>%
   mutate(approach = forcats::fct_reorder(approach, abs(Pc - true_P_c), .fun = median, .desc = FALSE)) %>%
   ggplot(aes(x = realized_r_y, y = abs(Pc - true_P_c), color = approach)) +
   geom_smooth() +
   xlab("Realized r_y") +
   ylab("Bias") +
   theme_minimal() +
-  facet_wrap(~Scenario, scales = "free_x")
+  facet_wrap(~Scenario, scales = "free")
 
-results_pc %>%
-  filter(Scenario == "Uniform g_y") %>%
-  pivot_longer(c(P_c_plain, P_c_cov, P_c_strat, P_c_uniform, P_c_true_shape, P_c_flexible),
-    names_to = "approach", values_to = "Pc"
-  ) %>%
+results_pc |>
+  filter(Scenario != "Uniform g_y") %>%
+  pivot_longer(c(
+    "P_c_plain", "P_c_cov", "P_c_strat", "P_c_beta", "P_c_beta_cov",
+    "P_c_beta_theta", "P_c_normal_theta", "P_c_uniform", "P_c_true_anchor0",
+    "P_c_true_anchormax"
+  ), names_to = "approach", values_to = "Pc") |>
   mutate(approach = case_when(
     approach == "P_c_plain" ~ "DS traditional",
     approach == "P_c_cov" ~ "MCDS",
     approach == "P_c_strat" ~ "Stratification",
+    approach == "P_c_beta" ~ "Beta shape on distance",
+    approach == "P_c_beta_cov" ~ "Beta shape on distance with MCDS",
+    approach == "P_c_beta_theta" ~ "Beta shape on theta",
+    approach == "P_c_normal_theta" ~ "Normal shape on theta",
     approach == "P_c_uniform" ~ "Strip sampling",
-    approach == "P_c_true_shape" ~ "Ideal estimation",
-    approach == "P_c_flexible" ~ "Flexible shape model"
+    approach == "P_c_true_anchor0" ~ "Ideal estimation, anchor at g(0)",
+    approach == "P_c_true_anchormax" ~ "Ideal estimation, anchor at g(y*)"
   )) %>%
-  mutate(approach = forcats::fct_reorder(approach, abs(Pc - true_P_c),
-    .fun = median,
-    na.rm = TRUE, .desc = TRUE
-  )) %>%
+  filter(approach != "Ideal estimation, anchor at g(0)") %>%
   ggplot(aes(x = approach, y = abs(Pc - true_P_c), fill = approach)) +
   geom_boxplot(na.rm = TRUE) +
   theme_minimal()
 
-
-results_pc %>%
-  pivot_longer(c(P_c_plain, P_c_cov, P_c_strat, P_c_uniform, P_c_true_shape, P_c_flexible),
-    names_to = "approach", values_to = "Pc"
-  ) %>%
+results_pc |>
+  filter(Scenario != "Uniform g_y") %>%
+  pivot_longer(c(
+    "P_c_plain", "P_c_cov", "P_c_strat", "P_c_beta", "P_c_beta_cov",
+    "P_c_beta_theta", "P_c_normal_theta", "P_c_uniform", "P_c_true_anchor0",
+    "P_c_true_anchormax"
+  ), names_to = "approach", values_to = "Pc") |>
   mutate(approach = case_when(
     approach == "P_c_plain" ~ "DS traditional",
     approach == "P_c_cov" ~ "MCDS",
     approach == "P_c_strat" ~ "Stratification",
+    approach == "P_c_beta" ~ "Beta shape on distance",
+    approach == "P_c_beta_cov" ~ "Beta shape on distance with MCDS",
+    approach == "P_c_beta_theta" ~ "Beta shape on theta",
+    approach == "P_c_normal_theta" ~ "Normal shape on theta",
     approach == "P_c_uniform" ~ "Strip sampling",
-    approach == "P_c_true_shape" ~ "Ideal estimation",
-    approach == "P_c_flexible" ~ "Flexible shape model"
+    approach == "P_c_true_anchor0" ~ "Ideal estimation, anchor at g(0)",
+    approach == "P_c_true_anchormax" ~ "Ideal estimation, anchor at g(y*)"
   )) %>%
+  filter(approach != "Ideal estimation, anchor at g(0)") %>%
   group_by(Scenario, approach) %>%
   summarise(pct_na = mean(is.na(Pc)), .groups = "drop") %>%
   mutate(approach = forcats::fct_reorder(approach, pct_na, .fun = mean, .desc = TRUE)) %>%

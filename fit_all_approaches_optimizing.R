@@ -13,13 +13,13 @@ library(data.table)
 library(mgcv)
 
 # ---- compile all models ONCE, reused across every sim ----
-hn_y_model          <- stan_model("hn_y_posterior_sampling.stan")       # approach 1
-hn_y_MCDS_model     <- stan_model("hn_y_MCDS_half_normal.stan")         # approach 2
+hn_y_model <- stan_model("hn_y_posterior_sampling.stan") # approach 1
+hn_y_MCDS_model <- stan_model("hn_y_MCDS_half_normal.stan") # approach 2
 # approach 3 reuses hn_y_model via post-stratification
-beta_y_model        <- stan_model("beta_y_posterior_sampling.stan")     # approach 4
-beta_y_MCDS_model   <- stan_model("beta_y_MCDS_posterior_sampling.stan")# approach 5
-beta_theta_model    <- stan_model("beta_theta_posterior_sampling.stan") # approach 6
-normal_theta_model  <- stan_model("normal_thetha_posterior_sampling.stan") # approach 7
+beta_y_model <- stan_model("beta_y_posterior_sampling.stan") # approach 4
+beta_y_MCDS_model <- stan_model("beta_y_MCDS_posterior_sampling.stan") # approach 5
+beta_theta_model <- stan_model("beta_theta_posterior_sampling.stan") # approach 6
+normal_theta_model <- stan_model("normal_thetha_posterior_sampling.stan") # approach 7
 
 # ---- Approach 1: plain distance-only half-normal ----
 fit_approach1 <- function(y, w) {
@@ -63,12 +63,14 @@ fit_approach3 <- function(y, theta, w, n_strata = 4) {
 
   strata_results <- lapply(seq_len(n_strata), function(k) {
     idx <- which(strat == k)
-    if (length(idx) < 5) return(list(n = length(idx), P_c = NA_real_))
+    if (length(idx) < 5) {
+      return(list(n = length(idx), P_c = NA_real_))
+    }
     res <- fit_approach1(y[idx], w)
     list(n = length(idx), P_c = res$P_c)
   })
 
-  n_k   <- sapply(strata_results, `[[`, "n")
+  n_k <- sapply(strata_results, `[[`, "n")
   P_c_k <- sapply(strata_results, `[[`, "P_c")
 
   valid <- !is.na(P_c_k) & P_c_k > 0
@@ -77,7 +79,7 @@ fit_approach3 <- function(y, theta, w, n_strata = 4) {
   }
 
   N_hat_strat <- sum(n_k[valid] / P_c_k[valid])
-  P_c_strat   <- sum(n_k[valid]) / N_hat_strat
+  P_c_strat <- sum(n_k[valid]) / N_hat_strat
 
   list(P_c_strat = P_c_strat, N_hat_strat = N_hat_strat, n_strata_failed = sum(!valid))
 }
@@ -92,7 +94,7 @@ fit_approach4 <- function(y, w) {
     return(list(Pc_hat = NA_real_, N_hat = NA_real_, alpha = NA_real_, beta = NA_real_))
   }
   alpha_hat <- fit$par[["alpha_p"]]
-  beta_hat  <- fit$par[["beta_p"]]
+  beta_hat <- fit$par[["beta_p"]]
   z <- y / w
   f_z <- dbeta(z, alpha_hat, beta_hat)
   mode <- (alpha_hat - 1) / (alpha_hat + beta_hat - 2)
@@ -112,15 +114,16 @@ fit_approach5 <- function(y, w, theta) {
   if (is.null(fit) || fit$return_code != 0) {
     return(list(Pc_hat = NA_real_, N_hat = NA_real_, mu = NA_real_, gamma_0 = NA_real_, gamma_1 = NA_real_))
   }
-  mu_hat      <- fit$par[["mu"]]
+  mu_hat <- fit$par[["mu"]]
   gamma_0_hat <- fit$par[["gamma_0"]]
   gamma_1_hat <- fit$par[["gamma_1"]]
   kappa <- exp(gamma_0_hat + gamma_1_hat * theta)
   alpha_hat <- mu_hat * kappa
-  beta_hat  <- (1 - mu_hat) * kappa
+  beta_hat <- (1 - mu_hat) * kappa
   z <- y / w
   mode_i <- ifelse(alpha_hat > 1 & beta_hat > 1,
-                    (alpha_hat - 1) / (alpha_hat + beta_hat - 2), NA)
+    (alpha_hat - 1) / (alpha_hat + beta_hat - 2), NA
+  )
   anchor_i <- dbeta(mode_i, alpha_hat, beta_hat)
   f_z <- dbeta(z, alpha_hat, beta_hat)
   p_hat_i <- f_z / anchor_i
@@ -139,7 +142,7 @@ fit_approach6 <- function(theta) {
     return(list(Pc_hat = NA_real_, N_hat = NA_real_, alpha = NA_real_, beta = NA_real_))
   }
   alpha_hat <- fit$par[["alpha_p"]]
-  beta_hat  <- fit$par[["beta_p"]]
+  beta_hat <- fit$par[["beta_p"]]
   z <- (theta - min(theta)) / (max(theta) - min(theta))
   f_z <- dbeta(z, alpha_hat, beta_hat)
   mode <- if (alpha_hat > 1 & beta_hat > 1) (alpha_hat - 1) / (alpha_hat + beta_hat - 2) else NA
@@ -159,7 +162,7 @@ fit_approach7 <- function(theta) {
   if (is.null(fit) || fit$return_code != 0) {
     return(list(Pc_hat = NA_real_, N_hat = NA_real_, mu = NA_real_, sigma = NA_real_))
   }
-  mu_hat    <- fit$par[["mu_p"]]
+  mu_hat <- fit$par[["mu_p"]]
   sigma_hat <- fit$par[["sigma_p"]]
   anchor <- dnorm(mu_hat, mu_hat, sigma_hat)
   p_hat_i <- dnorm(theta, mu_hat, sigma_hat) / anchor
@@ -173,18 +176,22 @@ fit_approach7 <- function(theta) {
 fit_true_shape <- function(full_sim_df, w, n_detected) {
   gam_fit <- tryCatch(mgcv::bam(g ~ s(y), data = full_sim_df), error = function(e) NULL)
   if (is.null(gam_fit)) {
-    return(list(P_c_true_shape_anchor0 = NA_real_, P_c_true_shape_anchormax = NA_real_,
-                N_hat_true_shape_anchor0 = NA_real_, N_hat_true_shape_anchormax = NA_real_))
+    return(list(
+      P_c_true_shape_anchor0 = NA_real_, P_c_true_shape_anchormax = NA_real_,
+      N_hat_true_shape_anchor0 = NA_real_, N_hat_true_shape_anchormax = NA_real_
+    ))
   }
   y_grid <- seq(0, w, length.out = 200)
-  g_y_marginal <- predict(gam_fit, newdata = data.frame(y = y_grid))
-  g0   <- predict(gam_fit, newdata = data.frame(y = 0))
+  g_y_marginal <- predict(gam_fit, newdata = data.frame(y = y_grid)) |> as.vector()
+  g0 <- predict(gam_fit, newdata = data.frame(y = 0))
   gmax <- max(g_y_marginal, na.rm = TRUE)
-  Pc_anchor0   <- mean(g_y_marginal / g0)
+  Pc_anchor0 <- mean(g_y_marginal / g0)
   Pc_anchormax <- mean(g_y_marginal / gmax)
-  list(P_c_true_shape_anchor0 = Pc_anchor0, P_c_true_shape_anchormax = Pc_anchormax,
-       N_hat_true_shape_anchor0 = n_detected / Pc_anchor0,
-       N_hat_true_shape_anchormax = n_detected / Pc_anchormax)
+  list(
+    P_c_true_shape_anchor0 = Pc_anchor0, P_c_true_shape_anchormax = Pc_anchormax,
+    N_hat_true_shape_anchor0 = n_detected / Pc_anchor0,
+    N_hat_true_shape_anchormax = n_detected / Pc_anchormax
+  )
 }
 
 # ---- helpers ----
@@ -192,13 +199,19 @@ fit_true_shape <- function(full_sim_df, w, n_detected) {
 # one text column per approach: "param=value; param=value" instead of one
 # column per parameter -- keeps the csv from exploding into a huge width
 param_string <- function(lst) {
-  if (is.null(lst)) return(NA_character_)
+  if (is.null(lst)) {
+    return(NA_character_)
+  }
   drop <- c("Pc_hat", "P_c", "N_hat", "N_hat_cov", "N_hat_strat", "P_c_strat", "n_strata_failed")
   keep <- setdiff(names(lst), drop)
-  if (length(keep) == 0) return(NA_character_)
+  if (length(keep) == 0) {
+    return(NA_character_)
+  }
   vals <- vapply(keep, function(nm) {
     v <- lst[[nm]]
-    if (is.null(v) || length(v) == 0 || all(is.na(v))) return(NA_real_)
+    if (is.null(v) || length(v) == 0 || all(is.na(v))) {
+      return(NA_real_)
+    }
     if (length(v) > 1) v <- mean(v, na.rm = TRUE)
     round(v, 4)
   }, numeric(1))
@@ -211,10 +224,9 @@ g <- function(lst, nm) if (is.null(lst)) NA else lst[[nm]]
 # ---- combined wrapper: run all 7 model-based approaches + uniform baseline
 #      + true-shape reference, write one row directly to csv ----
 fit_all_approaches <- function(fit_data, full_sim_df, w, true_P_c, sim, scenario,
-                                n_strata = 4, csv_path) {
-
+                               n_strata = 4, csv_path) {
   n_detected <- nrow(fit_data)
-  y     <- fit_data$distance
+  y <- fit_data$distance
   theta <- fit_data$theta
 
   r1 <- safe_fit(fit_approach1(y, w))
@@ -226,38 +238,29 @@ fit_all_approaches <- function(fit_data, full_sim_df, w, true_P_c, sim, scenario
   r7 <- safe_fit(fit_approach7(theta))
   r8 <- safe_fit(fit_true_shape(full_sim_df, w, n_detected))
 
-  P_c_uniform   <- 1
+  P_c_uniform <- 1
   N_hat_uniform <- n_detected / P_c_uniform
 
   row <- data.table::data.table(
     scenario = scenario, sim = sim,
     n_detected = n_detected, true_P_c = true_P_c, true_N_hat = n_detected / true_P_c,
-
-    P_c_plain = g(r1,"P_c"), N_hat_plain = g(r1,"N_hat"), bias_plain = g(r1,"P_c") - true_P_c,
+    P_c_plain = g(r1, "P_c"), N_hat_plain = g(r1, "N_hat"), bias_plain = g(r1, "P_c") - true_P_c,
     params_plain = param_string(r1),
-
-    P_c_cov = g(r2,"Pc_hat"), N_hat_cov = g(r2,"N_hat_cov"), bias_cov = g(r2,"Pc_hat") - true_P_c,
+    P_c_cov = g(r2, "Pc_hat"), N_hat_cov = g(r2, "N_hat_cov"), bias_cov = g(r2, "Pc_hat") - true_P_c,
     params_cov = param_string(r2),
-
-    P_c_strat = g(r3,"P_c_strat"), N_hat_strat = g(r3,"N_hat_strat"),
-    bias_strat = g(r3,"P_c_strat") - true_P_c, n_strata_failed = g(r3,"n_strata_failed"),
-
-    P_c_beta = g(r4,"Pc_hat"), N_hat_beta = g(r4,"N_hat"), bias_beta = g(r4,"Pc_hat") - true_P_c,
+    P_c_strat = g(r3, "P_c_strat"), N_hat_strat = g(r3, "N_hat_strat"),
+    bias_strat = g(r3, "P_c_strat") - true_P_c, n_strata_failed = g(r3, "n_strata_failed"),
+    P_c_beta = g(r4, "Pc_hat"), N_hat_beta = g(r4, "N_hat"), bias_beta = g(r4, "Pc_hat") - true_P_c,
     params_beta = param_string(r4),
-
-    P_c_beta_cov = g(r5,"Pc_hat"), N_hat_beta_cov = g(r5,"N_hat"),
-    bias_beta_cov = g(r5,"Pc_hat") - true_P_c, params_beta_cov = param_string(r5),
-
-    P_c_beta_theta = g(r6,"Pc_hat"), N_hat_beta_theta = g(r6,"N_hat"),
-    bias_beta_theta = g(r6,"Pc_hat") - true_P_c, params_beta_theta = param_string(r6),
-
-    P_c_normal_theta = g(r7,"Pc_hat"), N_hat_normal_theta = g(r7,"N_hat"),
-    bias_normal_theta = g(r7,"Pc_hat") - true_P_c, params_normal_theta = param_string(r7),
-
+    P_c_beta_cov = g(r5, "Pc_hat"), N_hat_beta_cov = g(r5, "N_hat"),
+    bias_beta_cov = g(r5, "Pc_hat") - true_P_c, params_beta_cov = param_string(r5),
+    P_c_beta_theta = g(r6, "Pc_hat"), N_hat_beta_theta = g(r6, "N_hat"),
+    bias_beta_theta = g(r6, "Pc_hat") - true_P_c, params_beta_theta = param_string(r6),
+    P_c_normal_theta = g(r7, "Pc_hat"), N_hat_normal_theta = g(r7, "N_hat"),
+    bias_normal_theta = g(r7, "Pc_hat") - true_P_c, params_normal_theta = param_string(r7),
     P_c_uniform = P_c_uniform, N_hat_uniform = N_hat_uniform, bias_uniform = P_c_uniform - true_P_c,
-
-    P_c_true_anchor0 = g(r8,"P_c_true_shape_anchor0"), N_hat_true_anchor0 = g(r8,"N_hat_true_shape_anchor0"),
-    P_c_true_anchormax = g(r8,"P_c_true_shape_anchormax"), N_hat_true_anchormax = g(r8,"N_hat_true_shape_anchormax")
+    P_c_true_anchor0 = g(r8, "P_c_true_shape_anchor0"), N_hat_true_anchor0 = g(r8, "N_hat_true_shape_anchor0"),
+    P_c_true_anchormax = g(r8, "P_c_true_shape_anchormax"), N_hat_true_anchormax = g(r8, "N_hat_true_shape_anchormax")
   )
 
   data.table::fwrite(row, csv_path, append = file.exists(csv_path))
@@ -284,6 +287,8 @@ list_sim_summary <- c(
   "E:/digitalvsdistance_results/new_results/3_sim_summary_list_high_r_y_halfnormal_g_y_smooth_scale.rds"
 )
 
+i <- sample(1:5, 1)
+spick <- sample(1:nsim, 1)
 for (i in 1:5) {
   detected_df <- arrow::read_parquet(list_detected_df[i])
   sim_summary <- data.table::rbindlist(readRDS(list_sim_summary[i]))
@@ -297,12 +302,14 @@ for (i in 1:5) {
   for (spick in 1:nsim) {
     sim_data <- detected_df[sim == spick]
     fit_data <- sim_data[detected == 1, .(distance = y, theta = theta)]
-    real_Pc  <- sim_data[, mean(g)]
+    real_Pc <- sim_data[, mean(g)]
     w_this_sim <- sim_summary[sim == spick]$w
 
-    fit_all_approaches(fit_data, sim_data, w = w_this_sim, n_strata = 4,
-                        true_P_c = real_Pc, sim = spick, scenario = scenario_name,
-                        csv_path = csv_path)
+    fit_all_approaches(fit_data, sim_data,
+      w = w_this_sim, n_strata = 4,
+      true_P_c = real_Pc, sim = spick, scenario = scenario_name,
+      csv_path = csv_path
+    )
   }
   gc()
 }
