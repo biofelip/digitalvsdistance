@@ -32,7 +32,7 @@ UNIFORM_TOL <- 1e-3 # how close to the floor counts as "essentially uniform"
 # ---- Approach 1: plain distance-only half-normal (unchanged) ----
 fit_approach1 <- function(y, w) {
   fit <- tryCatch(
-    optimizing(hn_y_model, data = list(N = length(y), y = y, w = w)),
+    optimizing(hn_y_model, data = list(N = length(y), y = y, w = w), init = list(sigma = w / 4)),
     error = function(e) NULL
   )
   if (is.null(fit) || fit$return_code != 0) {
@@ -48,7 +48,7 @@ fit_approach1 <- function(y, w) {
 # ---- Approach 2: half-normal, theta on scale (unchanged) ----
 fit_approach2 <- function(y, theta, w) {
   fit <- tryCatch(
-    optimizing(hn_y_MCDS_model, data = list(N = length(y), y = y, theta = theta, w = w)),
+    optimizing(hn_y_MCDS_model, data = list(N = length(y), y = y, theta = theta, w = w), init = list(beta_0 = log(w / 4), beta_1 = 0)),
     error = function(e) NULL
   )
   if (is.null(fit) || fit$return_code != 0) {
@@ -92,7 +92,7 @@ fit_approach3 <- function(y, theta, w, n_strata = 4) {
 # ---- Approach 4: Beta density, distance only (FIXED: floor + uniform fallback) ----
 fit_approach4 <- function(y, w, min_shape = MIN_SHAPE, uniform_tol = UNIFORM_TOL) {
   fit <- tryCatch(
-    optimizing(beta_y_model, data = list(N = length(y), y = y, w = w, min_shape = min_shape)),
+    optimizing(beta_y_model, data = list(N = length(y), y = y, w = w, min_shape = min_shape), init = list(mu = 0.5, kappa_excess = 10)),
     error = function(e) NULL
   )
   if (is.null(fit) || fit$return_code != 0) {
@@ -113,10 +113,13 @@ fit_approach4 <- function(y, w, min_shape = MIN_SHAPE, uniform_tol = UNIFORM_TOL
   list(Pc_hat = length(y) / N_hat, N_hat = N_hat, alpha = alpha_hat, beta = beta_hat)
 }
 
+
+
+
 # ---- Approach 5: Beta density with theta on concentration (FIXED: per-individual floor + fallback) ----
 fit_approach5 <- function(y, w, theta, min_shape = MIN_SHAPE, uniform_tol = UNIFORM_TOL) {
   fit <- tryCatch(
-    optimizing(beta_y_MCDS_model, data = list(N = length(y), y = y, w = w, theta = theta, min_shape = min_shape)),
+    optimizing(beta_y_MCDS_model, data = list(N = length(y), y = y, w = w, theta = theta, min_shape = min_shape), init = list(mu = 0.5, kappa_excess = 10)),
     error = function(e) NULL
   )
   if (is.null(fit) || fit$return_code != 0) {
@@ -143,10 +146,13 @@ fit_approach5 <- function(y, w, theta, min_shape = MIN_SHAPE, uniform_tol = UNIF
 # ---- Approach 6: Beta density on theta (FIXED: floor + epsilon squeeze + uniform fallback) ----
 fit_approach6 <- function(theta, min_shape = MIN_SHAPE, eps = EPS, uniform_tol = UNIFORM_TOL) {
   fit <- tryCatch(
-    optimizing(beta_theta_model, data = list(
-      N = length(theta), theta = theta,
-      min_shape = min_shape, eps = eps
-    )),
+    optimizing(beta_theta_model,
+      data = list(
+        N = length(theta), theta = theta,
+        min_shape = min_shape, eps = eps
+      ),
+      init = list(mu = 0.5, kappa_excess = 10)
+    ),
     error = function(e) NULL
   )
   if (is.null(fit) || fit$return_code != 0) {
@@ -171,7 +177,10 @@ fit_approach6 <- function(theta, min_shape = MIN_SHAPE, eps = EPS, uniform_tol =
 # ---- Approach 7: Normal on theta (unchanged) ----
 fit_approach7 <- function(theta) {
   fit <- tryCatch(
-    optimizing(normal_theta_model, data = list(N = length(theta), theta = theta)),
+    optimizing(normal_theta_model,
+      data = list(N = length(theta), theta = theta),
+      init = list(mu_p = mean(theta), sigma_p = sd(theta))
+    ),
     error = function(e) NULL
   )
   if (is.null(fit) || fit$return_code != 0) {
@@ -234,7 +243,7 @@ g <- function(lst, nm) if (is.null(lst)) NA else lst[[nm]]
 
 # ---- combined wrapper (unchanged in structure) ----
 fit_all_approaches <- function(fit_data, full_sim_df, w, true_P_c, sim, scenario,
-                               n_strata = 4, csv_path) {
+                               n_strata = 4, csv_path = NULL) {
   n_detected <- nrow(fit_data)
   y <- fit_data$distance
   theta <- fit_data$theta
@@ -273,8 +282,7 @@ fit_all_approaches <- function(fit_data, full_sim_df, w, true_P_c, sim, scenario
     P_c_true_anchormax = g(r8, "P_c_true_shape_anchormax"), N_hat_true_anchormax = g(r8, "N_hat_true_shape_anchormax")
   )
 
-  data.table::fwrite(row, csv_path, append = file.exists(csv_path))
-  invisible(row)
+  return(row)
 }
 
 # ---- main loop (unchanged) ----
@@ -296,6 +304,32 @@ list_sim_summary <- c(
   "E:/digitalvsdistance_results/new_results/3_sim_summary_list_high_r_y_halfnormal_g_y_smooth_scale.rds"
 )
 
+# for (i in 1:5) {
+#   detected_df <- arrow::read_parquet(list_detected_df[i])
+#   sim_summary <- data.table::rbindlist(readRDS(list_sim_summary[i]))
+#   detected_df <- data.table::data.table(detected_df)
+#   data.table::setkey(detected_df, sim)
+#   data.table::setkey(sim_summary, sim)
+
+#   scenario_name <- tools::file_path_sans_ext(basename(list_sim_summary[i]))
+#   csv_path <- glue("E:/digitalvsdistance_results/new_results/results_pc_{scenario_name}4.csv")
+#   scenario
+#   for (spick in 1:nsim) {
+#     sim_data <- detected_df[sim == spick]
+#     fit_data <- sim_data[detected == 1, .(distance = y, theta = theta)]
+#     real_Pc <- sim_data[, mean(g)]
+#     w_this_sim <- sim_summary[sim == spick]$w
+
+#     row=fit_all_approaches(fit_data, sim_data,
+#       w = w_this_sim, n_strata = 4,
+#       true_P_c = real_Pc, sim = spick, scenario = scenario_name,
+#       csv_path = csv_path
+#     )
+#   }
+#   gc()
+# }
+
+
 for (i in 1:5) {
   detected_df <- arrow::read_parquet(list_detected_df[i])
   sim_summary <- data.table::rbindlist(readRDS(list_sim_summary[i]))
@@ -304,19 +338,35 @@ for (i in 1:5) {
   data.table::setkey(sim_summary, sim)
 
   scenario_name <- tools::file_path_sans_ext(basename(list_sim_summary[i]))
-  csv_path <- glue("E:/digitalvsdistance_results/new_results/results_pc_{scenario_name}3.csv")
+  csv_path <- glue("E:/digitalvsdistance_results/new_results/results_pc_{scenario_name}4.csv")
 
-  for (spick in 1:nsim) {
+  # dry-run sim 1 to get column template
+  sim_data_1 <- detected_df[sim == 1]
+  template <- fit_all_approaches(
+    sim_data_1[detected == 1, .(distance = y, theta = theta)],
+    sim_data_1,
+    w = sim_summary[sim == 1]$w, n_strata = 4,
+    true_P_c = sim_data_1[, mean(g)], sim = 1, scenario = scenario_name
+  )
+
+  # preallocate nsim-row table, drop template into row 1
+  results_table <- template[rep(1, nsim)]
+  data.table::set(results_table, 1L, names(template), template)
+
+  for (spick in 2:nsim) {
     sim_data <- detected_df[sim == spick]
     fit_data <- sim_data[detected == 1, .(distance = y, theta = theta)]
     real_Pc <- sim_data[, mean(g)]
     w_this_sim <- sim_summary[sim == spick]$w
 
-    fit_all_approaches(fit_data, sim_data,
+    row <- fit_all_approaches(fit_data, sim_data,
       w = w_this_sim, n_strata = 4,
-      true_P_c = real_Pc, sim = spick, scenario = scenario_name,
-      csv_path = csv_path
+      true_P_c = real_Pc, sim = spick, scenario = scenario_name
     )
+
+    data.table::set(results_table, spick, names(row), row)
   }
+
+  data.table::fwrite(results_table, csv_path)
   gc()
 }
