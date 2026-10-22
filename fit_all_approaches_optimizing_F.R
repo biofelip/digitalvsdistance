@@ -1,35 +1,23 @@
-# fit_all_approaches_optimizing.R  (STABILITY-FIXED)
-#
-# Same 7 approaches via rstan::optimizing() as before. Approaches 4, 5, 6
-# now pass min_shape (and, for 6, eps) to the correspondingly-fixed .stan
-# files, which enforce alpha_p, beta_p >= min_shape during optimization
-# itself -- not just downstream. The R side additionally handles the
-# boundary case (shape sitting essentially at the floor = uniform) by
-# assuming complete detection there, same convention as the strip-sampling
-# baseline.
-#
-# Approaches 1, 2, 3, 7, and fit_true_shape are unchanged -- they were never
-# the source of instability.
+# fit_all_approaches_optimizing.R
+# Fits every approach to each simulated dataset with rstan::optimizing()
+# and saves P_c and bias per simulation.
 
 library(rstan)
 library(glue)
 library(data.table)
-library(mgcv)
 
-# ---- compile all models ONCE, reused across every sim ----
-hn_y_model <- stan_model("hn_y_posterior_sampling.stan") # approach 1
+hn_y_model <- stan_model("hn_y_posterior_sampling.stan") # approach 1 (and 3)
 hn_y_MCDS_model <- stan_model("hn_y_MCDS_half_normal.stan") # approach 2
-# approach 3 reuses hn_y_model via post-stratification
-beta_y_model <- stan_model("beta_y_posterior_sampling_C.stan") # approach 4 (fixed)
-beta_y_MCDS_model <- stan_model("beta_y_MCDS_posterior_sampling_C.stan") # approach 5 (fixed)
-beta_theta_model <- stan_model("beta_theta_posterior_sampling_C.stan") # approach 6 (fixed)
+beta_y_model <- stan_model("beta_y_posterior_sampling_C.stan") # approach 4
+beta_y_MCDS_model <- stan_model("beta_y_MCDS_posterior_sampling_C.stan") # approach 5
+beta_theta_model <- stan_model("beta_theta_posterior_sampling_C.stan") # approach 6
 normal_theta_model <- stan_model("normal_thetha_posterior_sampling.stan") # approach 7
 
-MIN_SHAPE <- 1 # floor so alpha_p, beta_p >= 1 in all beta models
-EPS <- 1e-6 # squeeze for approach 6's min-max z
-UNIFORM_TOL <- 1e-3 # how close to the floor counts as "essentially uniform"
+MIN_SHAPE <- 1
+EPS <- 1e-6
+UNIFORM_TOL <- 1e-3
 
-# ---- Approach 1: plain distance-only half-normal (unchanged) ----
+# ---- Approach 1: half-normal on distance ----
 fit_approach1 <- function(y, w) {
   fit <- tryCatch(
     optimizing(hn_y_model, data = list(N = length(y), y = y, w = w), init = list(sigma = w / 4)),
@@ -45,7 +33,7 @@ fit_approach1 <- function(y, w) {
   list(P_c = P_c, N_hat = N_hat, sigma_hat = sigma_hat)
 }
 
-# ---- Approach 2: half-normal, theta on scale (unchanged) ----
+# ---- Approach 2: half-normal, theta on the scale ----
 fit_approach2 <- function(y, theta, w) {
   fit <- tryCatch(
     optimizing(hn_y_MCDS_model, data = list(N = length(y), y = y, theta = theta, w = w), init = list(beta_0 = log(w / 4), beta_1 = 0)),
@@ -63,7 +51,7 @@ fit_approach2 <- function(y, theta, w) {
   list(Pc_hat = Pc_hat, N_hat_cov = N_hat, beta_0 = beta_0_hat, beta_1 = beta_1_hat)
 }
 
-# ---- Approach 3: stratified half-normal (unchanged) ----
+# ---- Approach 3: half-normal stratified on theta ----
 fit_approach3 <- function(y, theta, w, n_strata = 4) {
   breaks <- quantile(theta, probs = seq(0, 1, length.out = n_strata + 1))
   breaks[1] <- breaks[1] - 1e-8
@@ -89,7 +77,7 @@ fit_approach3 <- function(y, theta, w, n_strata = 4) {
   list(P_c_strat = P_c_strat, N_hat_strat = N_hat_strat, n_strata_failed = sum(!valid))
 }
 
-# ---- Approach 4: Beta density, distance only (FIXED: floor + uniform fallback) ----
+# ---- Approach 4: Beta on distance ----
 fit_approach4 <- function(y, w, min_shape = MIN_SHAPE, uniform_tol = UNIFORM_TOL) {
   fit <- tryCatch(
     optimizing(beta_y_model, data = list(N = length(y), y = y, w = w, min_shape = min_shape), init = list(mu = 0.5, kappa_excess = 10)),
@@ -114,9 +102,7 @@ fit_approach4 <- function(y, w, min_shape = MIN_SHAPE, uniform_tol = UNIFORM_TOL
 }
 
 
-
-
-# ---- Approach 5: Beta density with theta on concentration (FIXED: per-individual floor + fallback) ----
+# ---- Approach 5: Beta on distance, theta on the concentration ----
 fit_approach5 <- function(y, w, theta, min_shape = MIN_SHAPE, uniform_tol = UNIFORM_TOL) {
   fit <- tryCatch(
     optimizing(beta_y_MCDS_model, data = list(N = length(y), y = y, w = w, theta = theta, min_shape = min_shape), init = list(mu = 0.5, kappa_excess = 10)),
@@ -129,12 +115,11 @@ fit_approach5 <- function(y, w, theta, min_shape = MIN_SHAPE, uniform_tol = UNIF
   gamma_0_hat <- fit$par[["gamma_0"]]
   gamma_1_hat <- fit$par[["gamma_1"]]
 
-  # alpha_p/beta_p are per-individual transformed parameters -- pull the whole vector
   alpha_hat <- fit$par[grepl("^alpha_p\\[", names(fit$par))]
   beta_hat <- fit$par[grepl("^beta_p\\[", names(fit$par))]
 
   z <- y / w
-  near_uniform <- (alpha_hat + beta_hat) <= (2 + uniform_tol) # per-individual flag
+  near_uniform <- (alpha_hat + beta_hat) <= (2 + uniform_tol)
   mode_i <- ifelse(near_uniform, NA, (alpha_hat - 1) / (alpha_hat + beta_hat - 2))
   anchor_i <- ifelse(near_uniform, 1, dbeta(mode_i, alpha_hat, beta_hat))
   p_hat_i <- ifelse(near_uniform, 1, dbeta(z, alpha_hat, beta_hat) / anchor_i)
@@ -143,7 +128,7 @@ fit_approach5 <- function(y, w, theta, min_shape = MIN_SHAPE, uniform_tol = UNIF
   list(Pc_hat = length(y) / N_hat, N_hat = N_hat, mu = mu_hat, gamma_0 = gamma_0_hat, gamma_1 = gamma_1_hat)
 }
 
-# ---- Approach 6: Beta density on theta (FIXED: floor + epsilon squeeze + uniform fallback) ----
+# ---- Approach 6: Beta on theta ----
 fit_approach6 <- function(theta, min_shape = MIN_SHAPE, eps = EPS, uniform_tol = UNIFORM_TOL) {
   fit <- tryCatch(
     optimizing(beta_theta_model,
@@ -166,7 +151,7 @@ fit_approach6 <- function(theta, min_shape = MIN_SHAPE, eps = EPS, uniform_tol =
   }
 
   z_raw <- (theta - min(theta)) / (max(theta) - min(theta))
-  z <- z_raw * (1 - 2 * eps) + eps # same squeeze as the .stan file, for consistent p_hat_i
+  z <- z_raw * (1 - 2 * eps) + eps
   mode <- (alpha_hat - 1) / (alpha_hat + beta_hat - 2)
   anchor <- dbeta(mode, alpha_hat, beta_hat)
   p_hat_i <- dbeta(z, alpha_hat, beta_hat) / anchor
@@ -174,7 +159,7 @@ fit_approach6 <- function(theta, min_shape = MIN_SHAPE, eps = EPS, uniform_tol =
   list(Pc_hat = length(theta) / N_hat, N_hat = N_hat, alpha = alpha_hat, beta = beta_hat)
 }
 
-# ---- Approach 7: Normal on theta (unchanged) ----
+# ---- Approach 7: Normal on theta ----
 fit_approach7 <- function(theta) {
   fit <- tryCatch(
     optimizing(normal_theta_model,
@@ -195,18 +180,11 @@ fit_approach7 <- function(theta) {
   list(Pc_hat = Pc_hat, N_hat = N_hat, mu = mu_hat, sigma = sigma_hat)
 }
 
-# ---- Approach 8: true shape from full population (unchanged, already had the |> as.vector() fix) ----
-fit_true_shape <- function(full_sim_df, w, n_detected) {
-  gam_fit <- tryCatch(mgcv::bam(g ~ s(y), data = full_sim_df), error = function(e) NULL)
-  if (is.null(gam_fit)) {
-    return(list(
-      P_c_true_shape_anchor0 = NA_real_, P_c_true_shape_anchormax = NA_real_,
-      N_hat_true_shape_anchor0 = NA_real_, N_hat_true_shape_anchormax = NA_real_
-    ))
-  }
-  y_grid <- seq(0, w, length.out = 200)
-  g_y_marginal <- predict(gam_fit, newdata = data.frame(y = y_grid)) |> as.vector()
-  g0 <- predict(gam_fit, newdata = data.frame(y = 0))
+# ---- Approach 8: true shape from the full population (binned mean of g over y) ----
+fit_true_shape <- function(full_sim_df, n_detected, n_bins = 100) {
+  bins <- cut(full_sim_df$y, breaks = n_bins)
+  g_y_marginal <- as.vector(tapply(full_sim_df$g, bins, mean))
+  g0 <- g_y_marginal[1]
   gmax <- max(g_y_marginal, na.rm = TRUE)
   Pc_anchor0 <- mean(g_y_marginal / g0)
   Pc_anchormax <- mean(g_y_marginal / gmax)
@@ -217,7 +195,6 @@ fit_true_shape <- function(full_sim_df, w, n_detected) {
   )
 }
 
-# ---- helpers (unchanged) ----
 param_string <- function(lst) {
   if (is.null(lst)) {
     return(NA_character_)
@@ -241,7 +218,6 @@ param_string <- function(lst) {
 safe_fit <- function(expr) tryCatch(expr, error = function(e) NULL)
 g <- function(lst, nm) if (is.null(lst)) NA else lst[[nm]]
 
-# ---- combined wrapper (unchanged in structure) ----
 fit_all_approaches <- function(fit_data, full_sim_df, w, true_P_c, sim, scenario,
                                n_strata = 4, csv_path = NULL) {
   n_detected <- nrow(fit_data)
@@ -255,7 +231,7 @@ fit_all_approaches <- function(fit_data, full_sim_df, w, true_P_c, sim, scenario
   r5 <- safe_fit(fit_approach5(y, w, theta))
   r6 <- safe_fit(fit_approach6(theta))
   r7 <- safe_fit(fit_approach7(theta))
-  r8 <- safe_fit(fit_true_shape(full_sim_df, w, n_detected))
+  r8 <- safe_fit(fit_true_shape(full_sim_df, n_detected))
 
   P_c_uniform <- 1
   N_hat_uniform <- n_detected / P_c_uniform
@@ -285,49 +261,24 @@ fit_all_approaches <- function(fit_data, full_sim_df, w, true_P_c, sim, scenario
   return(row)
 }
 
-# ---- main loop (unchanged) ----
 nsim <- 10000
 
 list_detected_df <- c(
-  "E:/digitalvsdistance_results/new_results/1_2_detected_df_list_high_r_y_halfnormal_g_y_smooth_scale.parquet",
-  "E:/digitalvsdistance_results/new_results/1_detected_df_list_low_r_y_halfnormal_g_y_smooth_scale.parquet",
-  "E:/digitalvsdistance_results/new_results/2_2_detected_df_list_high_r_y_beta_g_y_smooth_scale.parquet",
-  "E:/digitalvsdistance_results/new_results/2_detected_df_list_low_r_y_beta_g_y_smooth_scale.parquet",
-  "E:/digitalvsdistance_results/new_results/3_detected_df_list_high_r_y_halfnormal_g_y_smooth_scale.parquet"
+  "C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/1_2_detected_df_list_high_r_y_halfnormal_g_y_smooth_scale.parquet",
+  "C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/1_detected_df_list_low_r_y_halfnormal_g_y_smooth_scale.parquet",
+  "C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/2_2_detected_df_list_high_r_y_beta_g_y_smooth_scale.parquet",
+  "C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/2_detected_df_list_low_r_y_beta_g_y_smooth_scale.parquet",
+  "C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/3_detected_df_list_uniform_g_y_smooth_scale.parquet"
 )
+
 
 list_sim_summary <- c(
-  "E:/digitalvsdistance_results/new_results/1_2_sim_summary_list_high_r_y_halfnormal_g_y_smooth_scale.rds",
-  "E:/digitalvsdistance_results/new_results/1_sim_summary_list_low_r_y_halfnormal_g_y_smooth_scale.rds",
-  "E:/digitalvsdistance_results/new_results/2_2_sim_summary_list_high_r_y_beta_g_y_smooth_scale.rds",
-  "E:/digitalvsdistance_results/new_results/2_sim_summary_list_low_r_y_beta_g_y_smooth_scale.rds",
-  "E:/digitalvsdistance_results/new_results/3_sim_summary_list_high_r_y_halfnormal_g_y_smooth_scale.rds"
+  "C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/1_2_sim_summary_list_high_r_y_halfnormal_g_y_smooth_scale.rds",
+  "C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/1_sim_summary_list_low_r_y_halfnormal_g_y_smooth_scale.rds",
+  "C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/2_2_sim_summary_list_high_r_y_beta_g_y_smooth_scale.rds",
+  "C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/2_sim_summary_list_low_r_y_beta_g_y_smooth_scale.rds",
+  "C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/3_sim_summary_list_uniform_g_y_smooth_scale.rds"
 )
-
-# for (i in 1:5) {
-#   detected_df <- arrow::read_parquet(list_detected_df[i])
-#   sim_summary <- data.table::rbindlist(readRDS(list_sim_summary[i]))
-#   detected_df <- data.table::data.table(detected_df)
-#   data.table::setkey(detected_df, sim)
-#   data.table::setkey(sim_summary, sim)
-
-#   scenario_name <- tools::file_path_sans_ext(basename(list_sim_summary[i]))
-#   csv_path <- glue("E:/digitalvsdistance_results/new_results/results_pc_{scenario_name}4.csv")
-#   scenario
-#   for (spick in 1:nsim) {
-#     sim_data <- detected_df[sim == spick]
-#     fit_data <- sim_data[detected == 1, .(distance = y, theta = theta)]
-#     real_Pc <- sim_data[, mean(g)]
-#     w_this_sim <- sim_summary[sim == spick]$w
-
-#     row=fit_all_approaches(fit_data, sim_data,
-#       w = w_this_sim, n_strata = 4,
-#       true_P_c = real_Pc, sim = spick, scenario = scenario_name,
-#       csv_path = csv_path
-#     )
-#   }
-#   gc()
-# }
 
 
 for (i in 1:5) {
@@ -338,18 +289,16 @@ for (i in 1:5) {
   data.table::setkey(sim_summary, sim)
 
   scenario_name <- tools::file_path_sans_ext(basename(list_sim_summary[i]))
-  csv_path <- glue("E:/digitalvsdistance_results/new_results/results_pc_{scenario_name}4.csv")
+  csv_path <- glue("C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/results_pc_{scenario_name}5.csv")
 
-  # dry-run sim 1 to get column template
   sim_data_1 <- detected_df[sim == 1]
   template <- fit_all_approaches(
     sim_data_1[detected == 1, .(distance = y, theta = theta)],
     sim_data_1,
-    w = sim_summary[sim == 1]$w, n_strata = 4,
+    w = 1, n_strata = 4,
     true_P_c = sim_data_1[, mean(g)], sim = 1, scenario = scenario_name
   )
 
-  # preallocate nsim-row table, drop template into row 1
   results_table <- template[rep(1, nsim)]
   data.table::set(results_table, 1L, names(template), template)
 
@@ -357,7 +306,7 @@ for (i in 1:5) {
     sim_data <- detected_df[sim == spick]
     fit_data <- sim_data[detected == 1, .(distance = y, theta = theta)]
     real_Pc <- sim_data[, mean(g)]
-    w_this_sim <- sim_summary[sim == spick]$w
+    w_this_sim <- 1
 
     row <- fit_all_approaches(fit_data, sim_data,
       w = w_this_sim, n_strata = 4,

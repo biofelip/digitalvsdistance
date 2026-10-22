@@ -2,7 +2,7 @@
 // Plain half-normal detection function, distance only, no covariate.
 
 data {
-  real<lower=10, upper=500> w;
+  real<lower=0.5, upper=500> w;
   int<lower=1> N;
   vector<lower=0>[N] y;
 

@@ -4,11 +4,12 @@ library(tidyverse)
 library(data.table)
 library(glue)
 library(logger)
-source("utils.R")
+library(sensitivity)
 
 log_appender(appender_file(".txt"))
 nsim <- 10000
 n <- 1e4
+eps <- 0.01 # smallest detection probability allowed for any animal
 set.seed(0.101992)
 high_r_y <- TRUE
 sim_summary_list <- vector("list", nsim)
@@ -20,13 +21,11 @@ if (high_r_y) {
   number_file <- "1_2"
 }
 
-log_appender(appender_file(glue("log_step_1_decreasing_g_y_{type}.txt")))
+log_appender(appender_file(glue("Dataset_creation_regime1{type}.txt")))
 
 gc()
 
 for (s in 1:nsim) {
-  V <- runif(1, 0, 1)
-  g0 <- runif(1, 0, 1)
   w <- runif(1, 1, 50) * 10
   if (!high_r_y) {
     r <- rgamma(3, shape = 1)
@@ -48,16 +47,16 @@ for (s in 1:nsim) {
 
   g_theta_alfa <- runif(1, 1, 4)
   g_theta_beta <- runif(1, 1, 4)
-  g_theta_raw <- dbeta(u_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
+  g_theta_raw <- dbeta(f_theta, shape1 = g_theta_alfa, shape2 = g_theta_beta)
   g_theta <- g_theta_raw - mean(g_theta_raw)
 
   # fy is already a uniform
-  f_y <- c(0.01, runif(n - 1, 0, w))
+  f_y <- c(0.01, runif(n - 1, 0.01, 1))
   u_y <- punif(f_y, 0, w)
 
 
   g_y1_scale <- runif(1, 0.4, 0.6)
-  g_y1_raw <- sqrt(2) / (g_y1_scale * sqrt(pi)) * exp(-u_y^2 / (2 * g_y1_scale^2))
+  g_y1_raw <- sqrt(2) / (g_y1_scale * sqrt(pi)) * exp(-f_y^2 / (2 * g_y1_scale^2))
   g_y1 <- g_y1_raw - mean(g_y1_raw)
 
 
@@ -69,8 +68,8 @@ for (s in 1:nsim) {
   g_theta_interaction_alfa <- runif(1, 1, 4)
   g_theta_interaction_beta <- runif(1, 1, 4)
 
-  g_y_interaction_raw <- dbeta(u_y, shape1 = g_y_interaction_alfa, shape2 = g_y_interaction_beta)
-  g_theta_interaction_raw <- dbeta(u_theta, shape1 = g_theta_interaction_alfa, shape2 = g_theta_interaction_beta)
+  g_y_interaction_raw <- dbeta(f_y, shape1 = g_y_interaction_alfa, shape2 = g_y_interaction_beta)
+  g_theta_interaction_raw <- dbeta(f_theta, shape1 = g_theta_interaction_alfa, shape2 = g_theta_interaction_beta)
 
   g_y_interaction <- g_y_interaction_raw - mean(g_y_interaction_raw)
   g_theta_interaction <- g_theta_interaction_raw - mean(g_theta_interaction_raw)
@@ -85,13 +84,23 @@ for (s in 1:nsim) {
   var_th <- var(g_theta)
   var_int <- var(g_interaction)
 
-  target <- V * r
+  target <- r # components built with total variance 1, rescaled to the drawn V below
 
   a_y <- sqrt(target["y"] / var_y)
   a_th <- sqrt(target["theta"] / var_th)
   a_int <- sqrt(target["int"] / var_int)
 
 
+  # draw V up to the largest value that keeps every g >= eps when max g = 1
+  S1 <- a_y * g_y1 + a_th * g_theta + a_int * g_interaction
+  sd_S1 <- sd(S1)
+  V_max <- ((1 - eps) * sd_S1 / (max(S1) - min(S1)))^2
+  V <- runif(1, 0, V_max)
+  k <- sqrt(V) / sd_S1
+  a_y <- k * a_y
+  a_th <- k * a_th
+  a_int <- k * a_int
+  g0 <- 1 - k * max(S1) # intercept so that max g = 1
   g_raw <- g0 + a_y * g_y1 + a_th * g_theta + a_int * g_interaction
 
   components_final <- cbind(
@@ -105,7 +114,7 @@ for (s in 1:nsim) {
   # log file
 
   off_diag <- Map(apply(cov(components_final), 2, sum), diag(cov(components_final)), f = "-")
-  if (any(off_diag > 0.01)) {
+  if (any(abs(unlist(off_diag)) > 0.01)) {
     mesage <- glue("simulation {s} the sum of the off diagonal elements of the covaraince matrix are y{off_diag[1]}, theta{off_diag[2]}, interaction{off_diag[3]}, the components might not be orthogonal ")
     log_warn(skip_formatter(mesage))
   }
@@ -113,8 +122,8 @@ for (s in 1:nsim) {
   # g <- g_raw / g_raw[match(0.01, f_y)]
   # rescale based on the assumption that g(y,theta)=1 at the max point of the detection curve
   # no min max sacling will be done because we dont want to assume that there are zero detection zones
-  g <- g_raw / max(g_raw)
-  g <- pmax(g, sd(g) / 10) # the min value allowed is a tenth of the standard deviation of detection
+  # no rescaling needed: max(g_raw) = 1 and min(g_raw) >= eps by construction
+  g <- pmin(g_raw, 1) # removes floating-point overshoot above 1
   # save the points that corresponde to max detection
   max_point <- which.max(g_raw)
   max_y <- f_y[max_point]
@@ -167,7 +176,8 @@ for (s in 1:nsim) {
     realized_r_y = v_y_real / v_total,
     realized_r_theta = v_th_real / v_total,
     realized_r_int = v_int_real / v_total,
-    V_realized = v_total
+    V_realized = var(g),
+    V_max = V_max
   )
 
   detected_df_list[[s]] <- data.table(
@@ -189,6 +199,23 @@ for (s in 1:nsim) {
     # detection yes or no
     detected = detected
   )
+  sample_res <- detected_df_list[[s]] %>% select(c(g, y, theta, detected))
+  X <- sample_res %>% select(c(y, theta))
+  y <- sample_res$g
+  # Without Bootstrap confidence intervals
+  x <- shapleysobol_knn(
+    model = NULL, X = X,
+    n.knn = 15, U = list(1, 2, c(1, 2)),
+    noise = FALSE, n.limit = 2000
+  )
+  sobols <- tell(x, y)$Sobol
+  sobol_ry <- sobols[1]
+  sobol_rtheta <- sobols[2]
+  sobol_rint <- sobols[3] - sobol_ry - sobol_rtheta
+
+  if (any(abs(c(sobol_ry, sobol_rtheta, sobol_rint) - r) > 0.1)) {
+    log_warn("Sobol indices in this simulation are too far from the expected values, some variance is probably getting leaked during the montecalro simulation, {paste(round(c(sobol_ry,sobol_rtheta,sobol_rint)-r,3))}")
+  }
   log_info("Simulation {s} finished")
 }
 
@@ -198,12 +225,6 @@ length(sim_summary_list)
 # save the list of dataframes
 # saveRDS(detected_df_list, file = "L:/Documents/digitalvsdistance_results/2_2_detected_df_list_high_variance_free_shape_g_y.rds")
 
-# # one random example
-# index= sample(1:nsim, 1)
-# example_df= detected_df_list[[index]]
-# example_summary= sim_summary_list[[index]]
-# # plot the 3 distributions and the points on top
-# plot_sim_diagnostics(example_df, example_summary,y_shape = "beta", sim_id = index)
 # # save the dataframe with arrow because is too heavy right now
 # # this is soooo much faster than rbind
 detected_df_FULL <- data.table::rbindlist(detected_df_list)
@@ -211,6 +232,6 @@ dim(detected_df_FULL)
 
 
 # # save the dataframe with arrow because is too heavy right now
-saveRDS(sim_summary_list, file = glue("E:/digitalvsdistance_results/new_results/{number_file}_sim_summary_list_{type}_halfnormal_g_y_smooth_scale.rds"))
+saveRDS(sim_summary_list, file = glue("C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/{number_file}_sim_summary_list_{type}_halfnormal_g_y_smooth_scale_5.rds"))
 
-arrow::write_parquet(detected_df_FULL, glue("E:/digitalvsdistance_results/new_results/{number_file}_detected_df_list_{type}_halfnormal_g_y_smooth_scale.parquet"))
+arrow::write_parquet(detected_df_FULL, glue("C:/Users/247404/Documents/2024/digital_vs_distance/simulation_results/{number_file}_detected_df_list_{type}_halfnormal_g_y_smooth_scale_5.parquet"))

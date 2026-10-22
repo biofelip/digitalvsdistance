@@ -1,0 +1,12 @@
+*
+!.gitignore
+!Dataset_creation_regime1_F.R
+!Dataset_creation_regime2F.R
+!Dataset_creation_regime3_F.R
+!fit_all_approaches_optimizing_F.R
+!hn_y_posterior_sampling.stan
+!hn_y_MCDS_half_normal.stan
+!beta_y_posterior_sampling_C.stan
+!beta_y_MCDS_posterior_sampling_C.stan
+!beta_theta_posterior_sampling_C.stan
+!normal_thetha_posterior_sampling.stan
